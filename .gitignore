@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-electron/
+remotion-bundle/
+release/
+resources/ffmpeg
+.DS_Store
+*.log
+out/
+tmp/

@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "types": ["node"],
+    "resolveJsonModule": true
+  },
+  "include": ["electron/**/*.ts", "src/shared/**/*.ts", "src/remotion/**/*.ts", "scripts/**/*.ts"]
+}
