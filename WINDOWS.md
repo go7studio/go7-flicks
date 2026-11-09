@@ -18,13 +18,25 @@ Styled export uses Remotion `hardwareAcceleration: "if-possible"`, 8 Mbps, and n
 
 ## Drew
 
-1. Install Node.js. Clone the repo and install dependencies:
+Proper git folder on DadOffice is `D:\GitHub\go7-flicks` (same pattern as `D:\GitHub\OperationOops-FunSession`).
+
+1. Install Node.js. From PowerShell on that PC:
 
    ```
-   git clone https://github.com/SteveMLC/go7-flicks.git
-   cd go7-flicks
+   powershell -ExecutionPolicy Bypass -File \\path\to\setup-windows-d.ps1
+   ```
+
+   Or the manual clone:
+
+   ```
+   mkdir D:\GitHub -Force
+   git clone https://github.com/SteveMLC/go7-flicks.git D:\GitHub\go7-flicks
+   cd D:\GitHub\go7-flicks
+   git checkout cursor/dual-video-and-locked-ui
    npm install
    ```
+
+   One-shot script in the repo: `scripts/setup-windows-d.ps1`.
 
 2. Run `npm run dist:win`.
 3. Run `release\Go7Flicks-Setup-0.1.0.exe` and open Go7Flicks.
