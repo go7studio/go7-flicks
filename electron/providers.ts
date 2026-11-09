@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { ConnectionPublic, VoiceOption } from "../src/shared/model";
@@ -93,8 +94,8 @@ const CLAUDE_HELPER = "/Users/venomspike/.local/bin/anthropic-call";
 async function testCli(connection: ConnectionPublic): Promise<ProviderTest> {
   if (connection.kind === "claude" && fs.existsSync(CLAUDE_HELPER)) {
     try {
-      const text = await runCli(connection, "Reply with the single word ok.");
-      return { ok: text.trim().length > 0, message: cleanLine(text).slice(0, 180) || "The CLI returned nothing." };
+      const text = cleanLine(await runCli(connection, "Reply with the single word ok."));
+      return { ok: text.length > 0, message: text.slice(0, 180) || "The CLI returned nothing." };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : "The Claude helper call failed." };
     }
@@ -107,8 +108,8 @@ async function testCli(connection: ConnectionPublic): Promise<ProviderTest> {
     };
   }
   try {
-    const text = await runCli(connection, "Reply with the single word ok.");
-    return { ok: text.trim().length > 0, message: cleanLine(text).slice(0, 180) || "The CLI returned nothing." };
+    const text = cleanLine(await runCli(connection, "Reply with the single word ok."));
+    return { ok: text.length > 0, message: text.slice(0, 180) || "The CLI returned nothing." };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "The CLI call failed." };
   }
@@ -126,8 +127,23 @@ async function runCli(connection: ConnectionPublic, prompt: string): Promise<str
   }
   const bin = findBin(claude ? "claude" : "codex");
   if (!bin) throw new Error(claude ? "Claude Code is not installed." : "Codex is not installed.");
-  const args = claude ? ["-p", prompt] : ["exec", "--skip-git-repo-check", prompt];
-  const result = await exec(bin, args, { timeout: 90000, encoding: "utf8", maxBuffer: 1_000_000 });
+  const args = claude
+    ? ["-p", prompt]
+    : [
+        "exec",
+        "--model",
+        connection.model.trim() || "gpt-5.6-terra",
+        "--skip-git-repo-check",
+        "-c",
+        "model_reasoning_effort=low",
+        prompt,
+      ];
+  const result = await exec(bin, args, {
+    timeout: 90000,
+    encoding: "utf8",
+    maxBuffer: 1_000_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  } as unknown as { timeout: number; encoding: "utf8"; maxBuffer: number });
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
 }
 
@@ -175,7 +191,7 @@ async function testOpenAI(connection: ConnectionPublic, key: string, prompt: str
   if (!response.ok) {
     return { ok: false, message: body?.error?.message || body?.base_resp?.status_msg || `The host returned ${response.status}.` };
   }
-  const text = body?.choices?.[0]?.message?.content?.trim() ?? "";
+  const text = cleanLine(body?.choices?.[0]?.message?.content ?? "");
   return { ok: text.length > 0, message: text || "The host returned nothing." };
 }
 
@@ -202,18 +218,18 @@ async function testEleven(connection: ConnectionPublic, key: string): Promise<Pr
 }
 
 function findBin(name: string): string | null {
-  try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    const tool = process.platform === "win32" ? "where" : "which";
-    const output = execFileSync(tool, [name], { encoding: "utf8" });
-    const file = output
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean);
-    return file || null;
-  } catch {
-    return null;
+  const dirs = [
+    path.join(os.homedir(), ".local", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    ...(process.env.PATH ?? "").split(path.delimiter),
+  ];
+  for (const dir of dirs) {
+    if (!dir) continue;
+    const file = path.join(dir, process.platform === "win32" ? `${name}.exe` : name);
+    if (fs.existsSync(file)) return file;
   }
+  return null;
 }
 
 function joinUrl(base: string, suffix: string): string {
@@ -229,10 +245,11 @@ async function errorText(response: Response): Promise<string> {
 }
 
 function cleanLine(text: string): string {
-  return text
+  const spoken = text.replace(/<think>[\s\S]*?<\/think>/gi, " ");
+  return spoken
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("warning:"))
+    .filter((line) => line && !line.startsWith("warning:") && !/reading additional input from stdin/i.test(line))
     .join(" ")
     .replace(/^["']|["']$/g, "")
     .trim();

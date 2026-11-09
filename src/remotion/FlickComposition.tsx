@@ -1,5 +1,6 @@
 import { AbsoluteFill, Audio, OffthreadVideo, Sequence, Video, useCurrentFrame, useVideoConfig } from "remotion";
 import { visibleRegions } from "../shared/canvas";
+import { VOICE_VOLUME, clipAudible, musicVolume } from "../shared/mix";
 import { type Region, type Track, clipDuration } from "../shared/model";
 
 export type RenderClip = {
@@ -22,6 +23,8 @@ export type FlickProps = {
   tracks: Track[];
   clips: RenderClip[];
   voiceSrc?: string;
+  musicSrc?: string;
+  musicCredit?: string;
   preview: boolean;
   headline?: string;
   headlineColor?: string;
@@ -58,7 +61,7 @@ export const FlickComposition = (props: FlickProps) => {
       {props.regions.map((region) => {
         if (region.hidden || region.height <= 0.01) return null;
         const track = props.tracks.find((item) => item.id === region.trackId);
-        const mute = Boolean(props.voiceSrc) || Boolean(track?.muted);
+        const mute = !clipAudible(track, Boolean(props.voiceSrc));
         return (
           <div
             key={region.id}
@@ -118,7 +121,6 @@ export const FlickComposition = (props: FlickProps) => {
             fontWeight: 900,
             lineHeight: 0.95,
             letterSpacing: -1,
-            textTransform: "uppercase",
             textShadow: "0 6px 0 #000",
           }}
         >
@@ -155,7 +157,6 @@ export const FlickComposition = (props: FlickProps) => {
             fontSize: props.headline ? 72 : 64,
             fontWeight: 800,
             letterSpacing: 0.5,
-            textTransform: "uppercase",
             textShadow: "0 4px 16px rgba(0,0,0,0.8)",
             WebkitTextStroke: props.headline ? `${props.titleStroke ?? 6}px #000` : undefined,
             paintOrder: "stroke fill",
@@ -164,7 +165,26 @@ export const FlickComposition = (props: FlickProps) => {
           {caption}
         </div>
       ) : null}
-      {props.voiceSrc ? <Audio src={props.voiceSrc} /> : null}
+      {props.musicSrc ? <Audio src={props.musicSrc} loop volume={musicVolume(Boolean(props.voiceSrc))} /> : null}
+      {props.voiceSrc ? <Audio src={props.voiceSrc} volume={VOICE_VOLUME} /> : null}
+      {props.musicSrc && props.musicCredit ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 48,
+            right: 48,
+            bottom: 64,
+            textAlign: "center",
+            color: "#fff",
+            fontSize: 28,
+            fontWeight: 650,
+            lineHeight: 1.2,
+            textShadow: "0 2px 8px rgba(0,0,0,0.9)",
+          }}
+        >
+          {props.musicCredit}
+        </div>
+      ) : null}
     </AbsoluteFill>
   );
 };

@@ -86,6 +86,8 @@ export type Flick = {
   tracks: Track[];
   clips: Clip[];
   voiceRelative?: string;
+  musicId?: string;
+  musicCredit?: string;
   templateId?: string;
   headline?: string;
   headlineColor?: string;
@@ -118,6 +120,11 @@ export type Template = {
   regions: Region[];
   tracks: Track[];
   clips: Clip[];
+  headline?: string;
+  headlineColor?: string;
+  accentWords?: string;
+  titleStroke?: number;
+  showRank?: boolean;
 };
 
 export type GpuProbe = {
@@ -137,6 +144,19 @@ export type GpuProbe = {
 export type RecentChannel = {
   path: string;
   name: string;
+};
+
+export type ShelfKind = "audio" | "video";
+
+export type ShelfEntry = {
+  id: string;
+  name: string;
+  kind: ShelfKind;
+  durationSec: number;
+  width: number;
+  height: number;
+  codec: string;
+  credit?: string;
 };
 
 export type CallResult = {
@@ -200,7 +220,7 @@ export function defaultsFor(kind: ConnectionKind): Pick<ConnectionDraft, "auth" 
     return {
       name: "MiniMax",
       auth: "key",
-      baseUrl: "https://api.minimax.io/v1",
+      baseUrl: "https://api.minimaxi.chat/v1",
       model: "MiniMax-M3",
       api: "openai-completions",
       voiceId: "English_expressive_narrator",

@@ -52,7 +52,7 @@ export async function probeMedia(file: string, ffmpegPath: string): Promise<Medi
   }
   const duration = text.match(/Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)/);
   const video = text.match(/Video:\s+(\w+)(?:\s*\([^)]*\))?.*?(\d{2,5})x(\d{2,5})/);
-  if (!duration) throw new Error("Could not read that video.");
+  if (!duration) throw new Error("Could not read that file.");
   const durationSec =
     Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]);
   return {

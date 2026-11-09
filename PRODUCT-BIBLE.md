@@ -97,8 +97,9 @@ Status words: **in the app**, **next**, **refused**. The first screen in section
 ### Canvas and templates
 
 - **In the app.** Four built-ins in `builtinTemplates()`: `builtin-split` (top 60 / bottom 40, hook, beat, payoff, muted loop), `builtin-dual` (half / half, face and gameplay, both heard), `builtin-ranking` (five rank slots plus a muted loop), `builtin-blank` (one region, no clips). `flickFromTemplate` copies the recipe onto the flick and leaves the original template alone.
-- **In the app.** Drag the seam (`dragSeam`), Full frame, Split evenly, trim in and out, split at the playhead, delete closes the gap, reorder with Earlier and Later. Cuts stay on that flick.
-- **In the app.** Save as template (`templateFromFlick`) keeps regions, tracks, and cut lengths, sets `mediaId` to null, and drops the link and the spoken line. Replace is offered only for templates the person saved. Built-ins are not in that menu.
+- **In the app.** Drag the seam (`dragSeam`), Full frame, Split evenly, trim in and out, split at the playhead, delete closes the gap, reorder with Earlier and Later. Undo and redo keep the last 30 canvas edits in the window. Cuts stay on that flick.
+- **In the app.** Save as template (`templateFromFlick`) keeps regions, tracks, and cut lengths, sets `mediaId` to null, and drops the link, the music file, and the music credit. Replace is offered only for templates the person saved. Built-ins are not in that menu.
+- **In the app.** Add music copies one local audio file into the channel. A credit is optional and is removed with that file. The credit is drawn on Export styled and on Export cut when the music is in that file. Files already added on this computer are kept in a shelf and can be used on the next flick. The app does not download music.
 - **In the app.** Preview is `@remotion/player` in the window. Frame is 1080×1920 at 30 fps (`FRAME` in `src/shared/model.ts`).
 - **Next.** Text-story and chat-story templates. Commentary as a script that becomes scenes, instead of only opening the split desk.
 - **Refused.** Buying or embedding the Remotion Timeline component. Treating a template as a lock.
@@ -123,7 +124,7 @@ A reusable half-and-half template. The top half starts as the face or the UGC cl
 
 Drew or Wes opens Split Screen on the home. That card is this desk, and it is still one of the two first-screen cards. Half is already selected, with the face on top. They choose Face on top or Gameplay on top, and a seam preset before Open timeline: Half (0.5 / 0.5), Face larger (the face region is 60%), or Gameplay larger (the gameplay region is 60%). They add the two local files. Open timeline writes a flick from `builtin-dual`. On the canvas they drag the seam with `dragSeam`. Save as template stores that layout for the next flick and leaves the built-in alone.
 
-Both tracks start unmuted. The phone on the desk previews the files muted. The timeline and Export styled play both clips. Each clip has a sound switch, so turning one off is the mute. A voice file still replaces the picture sound. Export cut still concatenates the top region and drops clip audio. That cut path did not change.
+Both tracks start unmuted. The phone on the desk plays a side when that side is heard. The timeline and Export styled play both clips under the voice. Each clip has a sound switch, so turning one off is the mute. Export cut still concatenates the top region and drops clip audio. Its sound is the voice and any added music.
 
 - **In the app.** `builtin-dual` in `builtinTemplates()`: two regions at 0.5 and 0.5, clips Face and Gameplay, tracks `track-face` and `track-game`, both unmuted. `applyDualLayout` writes the arrangement and the preset onto the flick. The seam still moves after Open timeline.
 - **In the app.** The home card stays Split Screen. Its copy says face and gameplay. Later tools stay off the first screen.
@@ -151,14 +152,14 @@ Both tracks start unmuted. The phone on the desk previews the files muted. The t
 
 ### Voice
 
-- **In the app.** Make voice on the canvas, for the clip under the playhead. The person picks an ElevenLabs or MiniMax row. The file is `flicks/<id>/voice.mp3`. The styled composition plays it. The cut export muxes it under the picture when the file is there. Connections on the rail is where the key is saved and tested. The Generate AI Voiceover home card comes off the first screen.
+- **In the app.** Make voice on the canvas, for the clip under the playhead. The person picks an ElevenLabs or MiniMax row. The file is `flicks/<id>/voice.mp3`. The styled composition plays it at full level and keeps heard clip audio. Added music plays at 0.22, or at 0.10 while the voice file is present. The cut export muxes the voice and the music under the picture and still drops clip audio. Connections on the rail is where the key is saved and tested. The Generate AI Voiceover home card comes off the first screen.
 - **Next.** A voice picker with a short preview on the desk, before the timeline. Two voices on one flick, for a chat story.
 
 ### Rendering
 
 - **In the app.** Startup of the canvas calls the GPU probe and writes one line: the encoder name, or “software”, or “ffmpeg missing”.
 - **In the app.** Export cut (`electron/cut.ts`). The top visible region’s clips are trimmed and concatenated with the probed ffmpeg. A clip that is already H.264 at 1080×1920 is stream-copied. Anything else is scaled and cropped, then encoded. Hardware encoders use `-b:v 8M`. The software fallback `libx264` uses `-preset veryfast -crf 20` on this cut path only. VideoToolbox, NVENC, QSV, and AMF are the probe order that can win. On this Mac the preference is VideoToolbox, then libx264. On Windows the preference is NVENC, then QSV, then AMF, then libx264. Remotion cannot use QSV or AMF. That is why the cut path exists.
-- **In the app.** Export styled (`electron/styled.ts`). `renderMedia` uses `codec: "h264"`, `hardwareAcceleration: "if-possible"`, `videoBitrate: "8M"`, and `crf: null`. Mac uses VideoToolbox when the encoder allows it. Windows with NVIDIA uses NVENC. Anything else is software x264, and the encoder line has already said software. The styled picture includes the split, the headline, the rank, the line, and the voice file. A region plays its own clip audio unless that track is muted or a voice file is on the flick.
+- **In the app.** Export styled (`electron/styled.ts`). `renderMedia` uses `codec: "h264"`, `hardwareAcceleration: "if-possible"`, `videoBitrate: "8M"`, and `crf: null`. Mac uses VideoToolbox when the encoder allows it. Windows with NVIDIA uses NVENC. Anything else is software x264, and the encoder line has already said software. The styled picture includes the split, the headline, the rank, the line, the voice file, and the music credit when one is set. A region plays its own clip audio unless that track is muted. A voice file does not mute it.
 - **In the app.** Mac dmg scripts are in `package.json` (`pack:mac`, `package:mac`, `dist:mac`, arm64). Windows scripts are in the same file: `pack:win`, `package:win`, `dist:win`, app id `com.go7studio.flicks`, NSIS installer `release/Go7Flicks-Setup-0.1.0.exe`. This Mac has not run that build. Drew and Wes run it on their own PCs. The steps are in section 9 and in `WINDOWS.md`.
 - **Refused.** A `crf` setting on the styled path. It silently falls back to software x264. A Mac-only `--codec=h264-videotoolbox` flag as the product switch.
 
@@ -181,23 +182,23 @@ The numbers and the rules are in section 5. The budget is a feature: the UI stay
 
 ## 4. UI principles
 
-Locked 2026-11-07 to the frames Steve approved: `docs/concepts/home.png` (the light shell) and `docs/concepts/ranking.png` (the ranking desk). Quick Editor’s first screen is two cards, Video Ranking and Split Screen. Split Screen opens the dual desk, with Half selected. It does not add a third card. Full Editor shows Simple Editor. AI Videos shows Generate AI Voiceover, which opens Connections. Auto Clipping, Video Commentary, Text Story, Video Transcriber, and Generate Image stay off those cards and sit in the rail under Later.
+Locked 2026-11-07 to the frames Steve approved: `docs/concepts/home.png` (the light shell) and `docs/concepts/ranking.png` (the ranking desk). Quick Editor’s first screen is two cards only: Video Ranking and Split Screen. Dual video is the Split Screen desk, not a third home card. The presets are Face on top, Gameplay on top, Half, Face larger, and Gameplay larger. Both clips can be audible. Open timeline is gold. Auto Clipping, Video Commentary, Text Story, Video Transcriber, and Generate Image stay in the rail under Later. They are not the first click.
 
 This layout is the baseline. It replaces the dense tool list. Minimal. One obvious next step. Low chrome. A kid can tell which button moves the work forward.
 
-- **Home.** One greeting, three small pills, two large cards. Lots of empty space. Library and Connections stay on the white rail. Later tools stay off this screen until they exist.
-- **Ranking desk and split desk.** The two starts. Each one is a phone, a short list, and one quiet inspector. Open timeline is the only strong button, and it is the handoff to the canvas.
-- **Canvas.** The cut surface, and the only editor. Seam, trim, split, delete, reorder, write line, make voice, export. Speed curves, face tracking, smart crop, SFX lanes, and a second timeline product stay off this screen.
+- **Home.** One greeting, three small pills, and two large cards on Quick Editor: Video Ranking and Split Screen. Lots of empty space. Library and Connections stay on the white rail. Later tools stay listed as later. They are not the first click.
+- **Ranking desk and split desk.** The two starts. The ranking desk is a multiline headline, accent words, rank on or off, 5, 6, or 7 slots, and Countdown, Listed, or Shuffle. Shuffle mixes play order and does not rewrite rank. Split Screen is the dual desk: Face on top, Gameplay on top, Half, Face larger, and Gameplay larger, and both clips can be audible. Each desk is a phone, a short list, and one quiet inspector. Open timeline is the gold button, and it is the handoff to the canvas.
+- **Canvas.** The cut surface, and the only editor. Seam, trim, split, delete, reorder, undo, write line, make voice, add music, export. On a flick with two or more visible regions the cut button says “Export cut · keeps the top picture”. With one visible region it says “Export cut”. Cut sound is the voice and the music. Export styled draws both halves, titles, voice, heard clip audio, and the music credit. There is no bundled song catalog and no second encode format. Files already added stay on this computer and can be used again. Styled stays `hardwareAcceleration: "if-possible"`, `videoBitrate: "8M"`, and `crf` null. A pasted link remains a note. The app does not download a TikTok, YouTube, or Instagram video. Speed curves, face tracking, smart crop, SFX lanes, and a second timeline product stay off this screen.
 - **Connections.** A short form and a list of rows. Test is the next step.
 - **Channel.** A list of flicks plus New flick. Blank is chosen here.
 
-The current home still paints Auto Clipping, Text Story, Video Commentary, Simple Editor, Video Transcriber, Generate Image, and Generate AI Voiceover. The next UI change removes those from the first click. Their behavior stays in section 3. The PDF’s CapCut deck is not added beside this canvas.
+Quick Editor’s first screen is already those two cards. Auto Clipping, Text Story, Video Commentary, Simple Editor, Video Transcriber, Generate Image, and Generate AI Voiceover stay later, listed in section 3. They are not the first click. The PDF’s CapCut deck is not added beside this canvas.
 
 ### Concept frames
 
 Lovart returned both frames on 2026-11-07 after `lovart_confirm` with credit spend approved. Each thread had been waiting on a 15-credit confirm. Both confirms returned `done` and a PNG. The files on disk:
 
-- Home: `docs/concepts/home.png` (2048×1280). Thread `75f9bb52-c3a1-4a21-8284-826897399a63`. White rail, the greeting, three pills, and four cards. Use the light shell. Take Auto Clipping, Video Commentary, and Text Story off the first screen, as section 2 says. Split is the second start. The frame drew that start under the name Video Commentary.
+- Home: `docs/concepts/home.png` (2048×1280). Thread `75f9bb52-c3a1-4a21-8284-826897399a63`. White rail, the greeting, three pills, and four cards. Use the light shell. The saved frame still draws Auto Clipping, Video Commentary, and Text Story. The app’s Quick Editor does not. Those stay later, as section 2 says. Split Screen is the second start, and dual video is that desk, not a third home card. The frame drew that start under the name Video Commentary.
 - Ranking: `docs/concepts/ranking.png` (2048×1280). Thread `3efa1f4b-03be-4356-942d-c51bad761be3`. This is the ranking desk: 9:16 phone, title on the frame, rank slots, Countdown / Listed / Shuffle, one inspector, Open timeline.
 
 ![Go7Flicks home concept](docs/concepts/home.png)
@@ -226,7 +227,7 @@ The ranking flick had 6 clips and no media. The blank flick had 0 clips. A few m
 What stays cheap:
 
 - **Idle UI.** Home, Library, the channel list, and both desks are local React state. They do not start ffmpeg, Remotion’s renderer, whisper, or a model.
-- **Preview.** `@remotion/player` scrubs in the window. It is not an encode. Ranking and split show a muted `<video>` of the selected file, and they do not mount the player until Open timeline.
+- **Preview.** `@remotion/player` scrubs in the window. It is not an encode. Ranking plays the selected clip. Split plays a side when that side is heard. They do not mount the player until Open timeline. Music is heard on the canvas.
 - **Save.** The canvas writes `flick.json` after a 350 ms pause. That write is the same shape as the timing test.
 - **API.** Write line is one short call, and only after the person presses the button and picks the row. Claude on this Mac uses cache none for that one-off line. No usage polling, no background router.
 - **Background render.** One export at a time. The buttons wait on the main-process IPC. Cut is ffmpeg. Styled is Remotion plus the encode, and it is the heavy one. Do not start the other export while one is running. Do not start a second preview render beside the player.
@@ -351,8 +352,10 @@ Local-only. Output is an MP4 the person chose. No upload step.
 
 Nothing in the “next” list above is dropped. The order is the one that keeps the screen obvious and the machine usable.
 
-1. **Codex model on the subscription row.** Pass `gpt-5.6-terra` (or whatever model the person typed) into `codex exec`, at low effort, for Write line. Leave the vault as the only key store. Do not read the `codex-api-call` secrets file.
-2. **First screen.** Take Auto Clipping, Text Story, Video Commentary, Simple Editor, Video Transcriber, Generate Image, and Generate AI Voiceover off the home. Leave Video Ranking and Split. Then add the local in-out scan inside the ranking desk, for a file already on the machine.
+The first screen is already simplified. Quick Editor is two cards only: Video Ranking and Split Screen. Dual video is the Split Screen desk, not a third home card. Presets are Face on top, Gameplay on top, Half, Face larger, and Gameplay larger. Both clips can be audible. Open timeline is gold. The ranking desk keeps a multiline headline, accent words, rank on or off, 5, 6, or 7 slots, and Countdown, Listed, or Shuffle. Shuffle mixes play order and does not rewrite rank. On a flick with two or more visible regions the cut button says “Export cut · keeps the top picture”. With one visible region it says “Export cut”. Export styled is unchanged and is the render that draws both halves, titles, and voice. There is no second encode format. Styled stays `hardwareAcceleration: "if-possible"`, `videoBitrate: "8M"`, and `crf` null. A pasted link remains a note. The app does not download a TikTok, YouTube, or Instagram video. Last test, on 2026-11-07, is that baseline. Later tools stay in the list below. They are not the first click.
+
+1. **Codex model on the subscription row.** Done. Write line passes the row model into `codex exec` at low effort. An empty model field uses `gpt-5.6-terra`. The vault stays the only key store. A live caption still needs a Codex row in this app’s Connections. Do not read the `codex-api-call` secrets file.
+2. **Local in-out scan.** Quick Editor already shows Video Ranking and Split Screen, and the later tools are not the first click. Next is the local in-out scan inside the ranking desk, for a file already on the machine.
 3. **A whisper that runs.** Fix or replace the broken local whisper before the transcriber card does anything. Word times land on the flick from the main process.
 4. **Ranking polish.** Fade and bounce, drag the clip title under the headline, a number on one slot, a black plate behind the headline.
 5. **Story desks.** Commentary that turns a script into scenes. Text-story and chat-story templates. Video Story as its own card.
@@ -374,9 +377,10 @@ What is already in the repo, in `package.json`:
 - `npm run dist:win` is the command to use. It runs the build, then `package:win`.
 - App id: `com.go7studio.flicks`. Product name: Go7Flicks. Executable name: Go7Flicks.
 - NSIS is not one-click. It is per user, it can change the install folder, and it adds a desktop shortcut and a Start menu shortcut. Uninstall does not delete app data.
-- The installer file the script is set to write is `release/Go7Flicks-Setup-0.1.0.exe`. That file is not in this repo from a Windows run.
+- The installer file the script is set to write is `release/Go7Flicks-Setup-0.1.0.exe`. That file is not in this repo from a Windows run. Wine is not installed on this Mac, so this checkout did not produce the exe.
+- The Windows icon is already `build/icon.ico`. `package.json` sets `build.win.icon` to that file. `build/icon.svg`, `build/icon.png`, and `build/icon.icns` are in the repo for the Mac package.
 
-Drew, on his PC: install Node, copy this repo, run `npm install`, then `npm run dist:win`. Run `release\Go7Flicks-Setup-0.1.0.exe` and open Go7Flicks. Library, New channel, pick a folder on that PC. From home, open Video Ranking or Split, add clips that are already on the PC, then Open timeline. The encoder line on the canvas should read `h264_nvenc`, `h264_qsv`, `h264_amf`, or `software (libx264)`. Export cut or Export styled. Styled export is bitrate 8M with `crf` null. A pasted TikTok, YouTube, or Instagram link is only a note. The app does not download it.
+Drew, on his PC: install Node, clone `https://github.com/SteveMLC/go7-flicks.git`, run `npm install`, then `npm run dist:win`. Run `release\Go7Flicks-Setup-0.1.0.exe` and open Go7Flicks. Library, New channel, pick a folder on that PC. From home, open Video Ranking or Split, add clips that are already on the PC, then Open timeline. The encoder line on the canvas should read `h264_nvenc`, `h264_qsv`, `h264_amf`, or `software (libx264)`. Export cut or Export styled. Styled export uses Remotion `hardwareAcceleration: "if-possible"`, 8 Mbps, and no crf. On this Mac that encoder is `h264_videotoolbox`. On Windows with NVIDIA it is `h264_nvenc`. Intel QSV and AMD AMF are not in Remotion's styled path. A pasted TikTok, YouTube, or Instagram link is only a note. The app does not download it.
 
 Wes, on his PC: the same steps, with his own install. He can use an installer file Drew already built, copied onto Wes’s machine, instead of running `dist:win` again. His Connections and his saved templates stay on his install. Drew’s stay on Drew’s.
 

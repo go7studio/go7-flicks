@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyDualLayout,
+  applyDualShare,
   builtinTemplates,
   deleteClip,
   dragSeam,
@@ -11,8 +12,11 @@ import {
   playbackOrder,
   splitClip,
   templateFromFlick,
+  fitClipsToMedia,
+  rankingClipRange,
   trimClip,
 } from "../src/shared/canvas";
+import { clipAudible, creditDrawtext, cutAudioFilter } from "../src/shared/mix";
 import { timelineEnd } from "../src/shared/model";
 
 test("a template copies onto a flick and leaves the original alone", () => {
@@ -46,6 +50,27 @@ test("split, delete, and reorder stay on the track", () => {
   assert.notEqual(order[0], top[0].id);
 });
 
+test("a ranking range stays inside the file", () => {
+  assert.deepEqual(rankingClipRange(0, 99, 2.4), { inSec: 0, outSec: 2.4 });
+  assert.deepEqual(rankingClipRange(3.1, 3.2, 3.2), { inSec: 2.8, outSec: 3.2 });
+  assert.deepEqual(rankingClipRange(0, 1.2, 2.4), { inSec: 0, outSec: 1.2 });
+  const tiny = rankingClipRange(0, 0.2, 0.2);
+  assert.ok(tiny.outSec <= 0.2);
+  assert.ok(tiny.outSec - tiny.inSec >= 0.1);
+});
+
+test("a trim cannot run past the file", () => {
+  const flick = flickFromTemplate(builtinTemplates()[0], "Limit");
+  const hook = flick.clips.find((clip) => clip.label === "Hook");
+  assert.ok(hook);
+  hook.mediaId = "clip-red";
+  const trimmed = trimClip(flick.clips, hook.id, "out", 9, 2);
+  assert.equal(trimmed.find((clip) => clip.id === hook.id)?.outSec, 2);
+  const fitted = fitClipsToMedia(flick.clips, new Map([["clip-red", 2]]));
+  assert.equal(fitted.find((clip) => clip.id === hook.id)?.outSec, 2);
+  assert.equal(timelineEnd(fitted.filter((clip) => clip.trackId === hook.trackId)) < timelineEnd(flick.clips.filter((clip) => clip.trackId === hook.trackId)), true);
+});
+
 test("trim ripples the following cut", () => {
   const flick = flickFromTemplate(builtinTemplates()[0], "Trim");
   const hook = flick.clips.find((clip) => clip.label === "Hook");
@@ -61,11 +86,27 @@ test("saving a template keeps the layout and drops the media", () => {
   flick.clips[0].mediaId = "media-1";
   flick.clips[0].sourceUrl = "https://www.tiktok.com/@example/video/1";
   flick.clips[0].line = "Hello";
+  flick.headline = "Bigger on top";
+  flick.musicId = "11111111-1111-4111-8111-111111111111";
+  flick.musicCredit = "Artist, track";
+  flick.regions = dragSeam(flick.regions, flick.regions[0].id, 0.72);
   const saved = templateFromFlick(flick, "My split");
   assert.equal(saved.builtin, false);
   assert.equal(saved.regions.length, 2);
-  assert.ok(saved.clips.every((clip) => clip.mediaId === null));
+  assert.equal(saved.regions[0].height, 0.72);
+  assert.equal(saved.headline, "Bigger on top");
+  assert.equal("musicId" in saved, false);
+  assert.equal("musicCredit" in saved, false);
+  assert.ok(saved.clips.every((clip) => clip.mediaId === null && clip.sourceUrl === undefined));
+  assert.equal(saved.clips.find((clip) => clip.label === "Hook")?.line, "Hello");
   assert.equal(saved.clips.find((clip) => clip.label === "Hook")?.outSec, 3);
+  const again = flickFromTemplate(saved, "Again");
+  assert.equal(again.headline, "Bigger on top");
+  assert.equal(again.musicId, undefined);
+  assert.equal(again.musicCredit, undefined);
+  assert.equal(again.regions[0].height, 0.72);
+  assert.equal(again.clips.find((clip) => clip.label === "Hook")?.line, "Hello");
+  assert.ok(again.clips.every((clip) => clip.mediaId === null));
 });
 
 test("full frame and the seam edit the layout without touching cuts", () => {
@@ -151,4 +192,30 @@ test("shuffle plays a mixed order and leaves the rank numbers alone", () => {
     playbackOrder(slots, "shuffle", ["c", "a", "b"]).map((slot) => slot.rank),
     [3, 5, 4],
   );
+});
+
+test("a heard track stays audible when a voice is on the flick", () => {
+  const heard = { muted: false };
+  const quiet = { muted: true };
+  assert.equal(clipAudible(heard, true), true);
+  assert.equal(clipAudible(heard, false), true);
+  assert.equal(clipAudible(quiet, true), false);
+  assert.equal(clipAudible(undefined, true), false);
+});
+
+test("export cut keeps the music and voice levels", () => {
+  const both = cutAudioFilter({
+    hasVoice: true,
+    hasMusic: true,
+    drawtext: creditDrawtext("/Library/Fonts/Arial.ttf", "/tmp/credit.txt"),
+  });
+  assert.ok(both);
+  assert.match(both, /normalize=0/);
+  assert.match(both, /volume=1\.0/);
+  assert.match(both, /volume=0\.10/);
+  assert.match(both, /drawtext/);
+  const music = cutAudioFilter({ hasVoice: false, hasMusic: true, drawtext: null });
+  assert.match(music ?? "", /volume=0\.22/);
+  assert.doesNotMatch(music ?? "", /amix/);
+  assert.equal(cutAudioFilter({ hasVoice: true, hasMusic: false, drawtext: null }), null);
 });

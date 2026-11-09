@@ -28,7 +28,7 @@ const CARDS: Tool[] = [
   },
   {
     title: "Split Screen",
-    copy: "Face or UGC on one half, gameplay on the other. Drag the seam.",
+    copy: "Face on one half, gameplay on the other.",
     action: "Open Split Screen",
     mode: "quick",
     art: "split",
@@ -68,7 +68,7 @@ const LATER: Tool[] = [
     action: "Create Video Commentary",
     mode: "quick",
     art: "talk",
-    studio: "split",
+    note: "A commentary desk is not in this build. Open Split Screen, then write the line on the canvas.",
   },
   {
     title: "Text Story",
@@ -223,6 +223,7 @@ export function HomeScreen({
           <nav className="side-tools">
             {LATER.map((tool) => (
               <button key={tool.title} disabled={busy} onClick={() => void start(tool)}>
+                <LaterIcon title={tool.title} />
                 {tool.title}
               </button>
             ))}
@@ -276,7 +277,12 @@ export function HomeScreen({
               {visible.map((tool) => (
                 <article key={tool.title} className="tool-card">
                   <div className={`art art-${tool.art}`} aria-hidden="true">
-                    <CardIcon art={tool.art} />
+                    <CardArt art={tool.art} />
+                    {tool.art === "rank" || tool.art === "split" ? (
+                      <span className={`art-badge badge-${tool.art}`}>
+                        <BadgeIcon art={tool.art} />
+                      </span>
+                    ) : null}
                   </div>
                   <h2>{tool.title}</h2>
                   <p>{tool.copy}</p>
@@ -293,9 +299,63 @@ export function HomeScreen({
   );
 }
 
-function CardIcon({ art }: { art: string }) {
-  if (art === "rank") return <TrophyIcon />;
-  if (art === "split") return <SplitIcon />;
+function BadgeIcon({ art }: { art: string }) {
+  if (art === "rank") {
+    return (
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path d="M8 4h8v6a4 4 0 0 1-8 0z" fill="none" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M8 7H5.5A3.5 3.5 0 0 0 9 12M16 7h2.5A3.5 3.5 0 0 1 15 12M12 14v2M9 20h6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (art === "split") {
+    return (
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <rect x="7" y="3" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+        <rect x="7" y="14" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      </svg>
+    );
+  }
+  if (art === "voice") return <VoiceIcon />;
+  return <EditIcon />;
+}
+
+function LaterIcon({ title }: { title: string }) {
+  const d =
+    title === "Auto Clipping"
+      ? "M8 7l8 5-8 5z"
+      : title === "Video Commentary"
+        ? "M5 6h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3z"
+        : title === "Text Story"
+          ? "M7 5h10v14H7zM9 9h6M9 13h6"
+          : title === "Video Transcriber"
+            ? "M6 6h12v12H6zM9 10h6M9 14h4"
+            : "M6 6h12v12H6z";
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CardArt({ art }: { art: string }) {
+  if (art === "rank") {
+    return (
+      <div className="mini-phone">
+        <p className="mini-title">Funniest</p>
+        <p className="mini-rank">#5</p>
+        <p className="mini-cap">Clip title</p>
+      </div>
+    );
+  }
+  if (art === "split") {
+    return (
+      <div className="mini-phone mini-split">
+        <span>Face</span>
+        <span>Gameplay</span>
+      </div>
+    );
+  }
   if (art === "voice") return <VoiceIcon />;
   return <EditIcon />;
 }
@@ -322,26 +382,6 @@ function ConnectionsIcon() {
       <circle cx="7" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <circle cx="17" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path d="M10 12h4" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function TrophyIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
-      <path d="M22 12h20v14a10 10 0 0 1-20 0z" fill="none" stroke="currentColor" strokeWidth="2.4" />
-      <path d="M22 18H14a8 8 0 0 0 8 10M42 18h8a8 8 0 0 1-8 10" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M32 36v6M24 52h16M26 42h12v4a6 6 0 0 1-6 6 6 6 0 0 1-6-6z" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round" />
-      <path d="M32 22l1.8 3.6 4 .6-2.9 2.8.7 4L32 31.2 28.4 33l.7-4-2.9-2.8 4-.6z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function SplitIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
-      <rect x="16" y="12" width="32" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="2.4" />
-      <rect x="16" y="36" width="32" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="2.4" />
     </svg>
   );
 }

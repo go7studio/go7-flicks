@@ -1,4 +1,4 @@
-import type { CallResult, ChannelFile, ConnectionDraft, ConnectionPublic, Flick, GpuProbe, MediaAsset, RecentChannel, Template } from "./model";
+import type { CallResult, ChannelFile, ConnectionDraft, ConnectionPublic, Flick, GpuProbe, MediaAsset, RecentChannel, ShelfEntry, Template } from "./model";
 
 export type ResolvedMedia = MediaAsset & {
   absolutePath: string;
@@ -31,6 +31,9 @@ export type FlicksApi = {
   readFlick: (dir: string, flickId: string) => Promise<CallResult & Partial<FlickPayload>>;
   saveFlick: (dir: string, flick: Flick) => Promise<CallResult & { flick?: Flick }>;
   importMedia: (dir: string, mode: "copy" | "link") => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[] }>;
+  importAudio: (dir: string) => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[] }>;
+  shelf: () => Promise<ShelfEntry[]>;
+  useShelf: (dir: string, id: string) => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[]; kind?: ShelfEntry["kind"]; credit?: string }>;
   templates: () => Promise<Template[]>;
   saveTemplate: (flick: Flick, name: string, replaceId?: string) => Promise<CallResult & { template?: Template }>;
   connections: () => Promise<ConnectionPublic[]>;

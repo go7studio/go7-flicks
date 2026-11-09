@@ -13,6 +13,7 @@ import {
   type Template,
   uid,
 } from "../src/shared/model";
+import { noteShelfCredit, rememberShelf } from "./shelf";
 import { deleteSecret, hasSecret, readJson, readSecret, saveSecret, userDir, writeJson } from "./vault";
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -86,6 +87,15 @@ export function saveFlick(dir: string, flick: Flick): Flick {
     item.id === clean.id ? { ...item, name: clean.name, updatedAt: new Date().toISOString() } : item,
   );
   writeJson(path.join(dir, "channel.json"), channel);
+  const music = clean.musicId ? channel.media.find((item) => item.id === clean.musicId) : undefined;
+  const musicFile = music ? resolveChannelMedia(dir, music) : null;
+  if (music && musicFile && clean.musicCredit && fs.existsSync(musicFile)) {
+    noteShelfCredit(
+      userDir(),
+      { name: music.name, bytes: fs.statSync(musicFile).size, durationSec: music.durationSec },
+      clean.musicCredit,
+    );
+  }
   return clean;
 }
 
@@ -93,7 +103,7 @@ export function importMedia(dir: string, source: string, mode: "copy" | "link", 
   if (!fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error("That file is missing.");
   const channel = readChannel(dir);
   const id = uid();
-  const name = path.basename(source);
+  const name = info.name?.trim() || path.basename(source);
   const asset: MediaAsset = {
     id,
     name,
@@ -112,6 +122,7 @@ export function importMedia(dir: string, source: string, mode: "copy" | "link", 
   }
   channel.media.push(asset);
   writeJson(path.join(dir, "channel.json"), channel);
+  rememberShelf(userDir(), source, { name, ...info }, mode);
   return asset;
 }
 
@@ -246,6 +257,8 @@ function sanitizeFlick(flick: Flick): Flick {
     width: 1080,
     height: 1920,
     voiceRelative: flick.voiceRelative === "voice.mp3" ? "voice.mp3" : undefined,
+    musicId: flick.musicId && ID.test(flick.musicId) ? flick.musicId : undefined,
+    musicCredit: flick.musicId && ID.test(flick.musicId) ? flick.musicCredit?.trim() || undefined : undefined,
     headline: flick.headline?.trim() || undefined,
     headlineColor: flick.headlineColor?.trim() || undefined,
     accentWords: flick.accentWords?.trim() || undefined,
@@ -259,6 +272,12 @@ function sanitizeFlick(flick: Flick): Flick {
       line: clip.line?.trim() || undefined,
     })),
   };
+}
+
+function resolveChannelMedia(dir: string, asset: MediaAsset): string | null {
+  if (asset.absolutePath) return asset.absolutePath;
+  if (asset.relativePath) return path.join(dir, asset.relativePath);
+  return null;
 }
 
 function safeName(name: string): string {

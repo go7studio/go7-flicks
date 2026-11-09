@@ -64,11 +64,16 @@
       {
         "from": "remotion-bundle",
         "to": "remotion-bundle"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
       }
     ],
     "win": {
       "target": "nsis",
-      "executableName": "Go7Flicks"
+      "executableName": "Go7Flicks",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "artifactName": "Go7Flicks-Setup-${version}.${ext}",
@@ -82,6 +87,7 @@
       "deleteAppDataOnUninstall": false
     },
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",

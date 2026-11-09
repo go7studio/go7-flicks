@@ -135,9 +135,14 @@ export function flickFromTemplate(template: Template, name: string): Flick {
       id: uid(),
       mediaId: null,
       sourceUrl: undefined,
-      line: undefined,
+      line: item.line?.trim() || undefined,
     })),
     templateId: template.id,
+    headline: template.headline,
+    headlineColor: template.headlineColor,
+    accentWords: template.accentWords,
+    titleStroke: template.titleStroke,
+    showRank: template.showRank,
   };
 }
 
@@ -164,7 +169,13 @@ export function templateFromFlick(flick: Flick, name: string, id = uid()): Templ
       inSec: 0,
       outSec: round3(clipDuration(item)),
       label: item.label,
+      line: item.line?.trim() || undefined,
     })),
+    headline: flick.headline?.trim() || undefined,
+    headlineColor: flick.headlineColor?.trim() || undefined,
+    accentWords: flick.accentWords?.trim() || undefined,
+    titleStroke: flick.titleStroke,
+    showRank: flick.showRank,
   };
 }
 
@@ -230,19 +241,53 @@ export function moveClip(clips: Clip[], clipId: string, direction: -1 | 1): Clip
   );
 }
 
-export function trimClip(clips: Clip[], clipId: string, edge: "in" | "out", sourceSec: number): Clip[] {
+/** Keep a ranking in/out inside the file. A short tail stays at least a tenth, and grows toward 0.4s only while the file has room. */
+export function rankingClipRange(inSec: number, outSec: number, duration: number): { inSec: number; outSec: number } {
+  const limit = duration > 0 ? duration : null;
+  const endCap = limit === null ? Math.max(outSec, inSec + 0.1) : Math.min(Math.max(outSec, 0), limit);
+  let start = Math.min(Math.max(0, inSec), Math.max(0, endCap - 0.1));
+  let end = Math.max(endCap, start + 0.1);
+  if (limit !== null) end = Math.min(end, limit);
+  if (end - start < 0.4) {
+    const want = limit === null ? 0.4 : Math.min(0.4, Math.max(0.1, limit));
+    end = limit === null ? start + want : Math.min(limit, start + want);
+    start = Math.max(0, end - want);
+  }
+  if (end < start + 0.1) start = Math.max(0, end - 0.1);
+  return { inSec: round3(start), outSec: round3(Math.max(start + 0.1, end)) };
+}
+
+export function trimClip(clips: Clip[], clipId: string, edge: "in" | "out", sourceSec: number, mediaSec?: number): Clip[] {
   const clip = clips.find((item) => item.id === clipId);
   if (!clip) return clips;
+  const limit = mediaSec && mediaSec > 0 ? mediaSec : null;
   const next = clips.map((item) => {
     if (item.id !== clipId) return item;
     if (edge === "in") {
-      const inSec = round3(Math.min(Math.max(0, sourceSec), item.outSec - 0.1));
+      const ceiling = (limit === null ? item.outSec : Math.min(item.outSec, limit)) - 0.1;
+      const inSec = round3(Math.min(Math.max(0, sourceSec), Math.max(0, ceiling)));
       return { ...item, inSec };
     }
-    const outSec = round3(Math.max(sourceSec, item.inSec + 0.1));
+    const outSec = round3(Math.min(limit ?? Number.POSITIVE_INFINITY, Math.max(sourceSec, item.inSec + 0.1)));
     return { ...item, outSec };
   });
   return packTrack(next, clip.trackId);
+}
+
+export function fitClipsToMedia(clips: Clip[], limits: ReadonlyMap<string, number>): Clip[] {
+  let changed = false;
+  const fitted = clips.map((clip) => {
+    const limit = clip.mediaId ? limits.get(clip.mediaId) : undefined;
+    if (!limit || limit <= 0) return clip;
+    const outSec = round3(Math.min(clip.outSec, limit));
+    const inSec = round3(Math.min(Math.max(0, clip.inSec), Math.max(0, outSec - 0.1)));
+    if (inSec === clip.inSec && outSec === clip.outSec) return clip;
+    changed = true;
+    return { ...clip, inSec, outSec };
+  });
+  if (!changed) return clips;
+  const tracks = [...new Set(fitted.map((clip) => clip.trackId))];
+  return tracks.reduce((packed, trackId) => packTrack(packed, trackId), fitted);
 }
 
 export function placeClip(clips: Clip[], trackId: string, clip: Clip): Clip[] {
@@ -268,20 +313,24 @@ export function dualTopHeight(arrangement: DualArrangement, preset: DualPreset):
   return arrangement === "face-top" ? faceShare : round3(1 - faceShare);
 }
 
-export function applyDualLayout(regions: Region[], arrangement: DualArrangement, preset: DualPreset): Region[] {
+export function applyDualShare(regions: Region[], arrangement: DualArrangement, topHeight: number): Region[] {
   const face = regions.find((item) => item.trackId === DUAL_FACE);
   const game = regions.find((item) => item.trackId === DUAL_GAME);
   if (!face || !game) return regions;
-  const topHeight = dualTopHeight(arrangement, preset);
+  const height = round3(Math.min(0.88, Math.max(0.12, topHeight)));
   const topId = arrangement === "face-top" ? face.id : game.id;
   const bottomId = arrangement === "face-top" ? game.id : face.id;
   return regions.map((item) => {
-    if (item.id === topId) return { ...item, x: 0, y: 0, width: 1, height: topHeight, hidden: false };
+    if (item.id === topId) return { ...item, x: 0, y: 0, width: 1, height, hidden: false };
     if (item.id === bottomId) {
-      return { ...item, x: 0, y: topHeight, width: 1, height: round3(1 - topHeight), hidden: false };
+      return { ...item, x: 0, y: height, width: 1, height: round3(1 - height), hidden: false };
     }
     return item;
   });
+}
+
+export function applyDualLayout(regions: Region[], arrangement: DualArrangement, preset: DualPreset): Region[] {
+  return applyDualShare(regions, arrangement, dualTopHeight(arrangement, preset));
 }
 
 export function splitEvenly(regions: Region[]): Region[] {

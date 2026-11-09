@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { playbackOrder, shuffleIds, type PlaybackMode } from "../shared/canvas";
-import { uid, type Flick } from "../shared/model";
+import { builtinTemplates, flickFromTemplate, playbackOrder, rankingClipRange, shuffleIds, type PlaybackMode } from "../shared/canvas";
+import { round3, uid, type Flick, type Template } from "../shared/model";
 
 type Slot = {
   id: string;
@@ -40,6 +40,16 @@ function formatClock(seconds: number): string {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
+function clampOut(next: number, inSec: number, duration: number): number {
+  const cap = duration > 0 ? duration : next;
+  return round3(Math.max(inSec + 0.1, Math.min(Math.max(0, next), cap)));
+}
+
+function clampIn(next: number, outSec: number, duration: number): number {
+  const end = duration > 0 ? Math.min(outSec, duration) : outSec;
+  return round3(Math.min(Math.max(0, next), Math.max(0, end - 0.1)));
+}
+
 function parseClock(value: string): number | null {
   const trimmed = value.trim();
   const match = trimmed.match(/^(\d+):(\d{1,2})(?:\.(\d{1,2}))?$/);
@@ -63,7 +73,7 @@ export function RankingStudio({
   const [dir, setDir] = useState<string | null>(null);
   const [headline, setHeadline] = useState("Ranking the funniest\ncartoon moments");
   const [accentWords, setAccentWords] = useState("funniest");
-  const [color, setColor] = useState("#ff3b30");
+  const [color, setColor] = useState("#e2b340");
   const [stroke, setStroke] = useState(6);
   const [showRank, setShowRank] = useState(true);
   const [playback, setPlayback] = useState<PlaybackMode>("countdown");
@@ -72,6 +82,7 @@ export function RankingStudio({
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recipes, setRecipes] = useState<Template[]>([]);
   const slot = slots[selected];
 
   function patch(next: Partial<Slot>) {
@@ -91,6 +102,80 @@ export function RankingStudio({
   function shuffle() {
     setOrderIds(shuffleIds(slots.map((item) => item.id)));
     setPlayback("shuffle");
+  }
+
+  useEffect(() => {
+    void window.flicks?.templates().then((items) => {
+      setRecipes(items.filter((item) => !item.builtin && item.headline));
+    });
+  }, []);
+
+  async function saveRecipe() {
+    const ranking = builtinTemplates().find((item) => item.id === "builtin-ranking");
+    if (!ranking) return;
+    const title = headline.split("\n")[0]?.trim() || "Ranking";
+    const base = flickFromTemplate(ranking, title);
+    const ordered = playbackOrder(slots, playback, orderIds);
+    let cursor = 0;
+    const clips = ordered.map((item) => {
+      const length = Math.max(0.4, item.outSec - item.inSec);
+      const clip = {
+        id: uid(),
+        mediaId: null,
+        trackId: "track-top",
+        startSec: cursor,
+        inSec: 0,
+        outSec: round3(length),
+        label: showRank ? `#${item.rank}` : item.title || "Clip",
+        line: item.title || undefined,
+      };
+      cursor += length;
+      return clip;
+    });
+    const loop = base.clips.find((clip) => clip.label === "Loop");
+    base.clips = loop ? [...clips, { ...loop, id: uid(), startSec: 0, outSec: round3(cursor || 3) }] : clips;
+    base.headline = headline;
+    base.headlineColor = color;
+    base.accentWords = accentWords;
+    base.titleStroke = stroke;
+    base.showRank = showRank;
+    const result = await window.flicks!.saveTemplate(base, title);
+    setMessage(result.ok ? `Saved “${title}”. This order and these words can run again.` : result.message ?? "Could not save that template.");
+    if (result.ok) {
+      const items = await window.flicks!.templates();
+      setRecipes(items.filter((item) => !item.builtin && item.headline));
+    }
+  }
+
+  function loadRecipe(template: Template) {
+    if (template.headline) setHeadline(template.headline);
+    if (template.headlineColor) setColor(template.headlineColor);
+    if (template.accentWords !== undefined) setAccentWords(template.accentWords);
+    if (template.titleStroke !== undefined) setStroke(template.titleStroke);
+    if (template.showRank !== undefined) setShowRank(template.showRank);
+    const ranked = template.clips.filter((clip) => clip.label !== "Loop" && clip.trackId !== "track-bottom");
+    if (!ranked.length) return;
+    setSlots(
+      ranked.map((clip, index) => {
+        const rankMatch = /^#(\d+)$/.exec(clip.label);
+        return {
+          id: uid(),
+          rank: rankMatch ? Number(rankMatch[1]) : ranked.length - index,
+          title: clip.line || (rankMatch ? "" : clip.label),
+          note: "",
+          inSec: 0,
+          outSec: Math.max(0.4, clip.outSec - clip.inSec),
+          duration: 0,
+          mediaId: null,
+          mediaName: "",
+          previewUrl: null,
+        };
+      }),
+    );
+    setPlayback("listed");
+    setOrderIds([]);
+    setSelected(0);
+    setMessage(`Loaded “${template.name}”. Add the clips, then open the timeline.`);
   }
 
   function move(step: number) {
@@ -172,19 +257,19 @@ export function RankingStudio({
       const clips = ordered
         .filter((item) => item.mediaId || item.title)
         .map((item) => {
-          const length = Math.max(0.4, item.outSec - item.inSec);
+          const range = rankingClipRange(item.inSec, item.outSec, item.duration);
           const clip = {
             id: uid(),
             mediaId: item.mediaId,
             trackId: "track-top",
             startSec: cursor,
-            inSec: item.inSec,
-            outSec: item.inSec + length,
+            inSec: range.inSec,
+            outSec: range.outSec,
             label: showRank ? `#${item.rank}` : item.title || "Clip",
             line: item.title || undefined,
             sourceUrl: item.note.trim() || undefined,
           };
-          cursor += length;
+          cursor += range.outSec - range.inSec;
           return clip;
         });
       const flick: Flick = {
@@ -210,7 +295,7 @@ export function RankingStudio({
 
   const sequence = playbackOrder(slots, playback, orderIds);
   const playAt = new Map(sequence.map((item, index) => [item.id, index + 1]));
-  const swatch = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#ff3b30";
+  const swatch = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#e2b340";
 
   return (
     <div className="studio ranking">
@@ -261,11 +346,26 @@ export function RankingStudio({
               Shuffle
             </button>
           </div>
+          <button className="btn" onClick={() => void saveRecipe()}>
+            Save template
+          </button>
+          {recipes.length ? (
+            <div className="order-stack">
+              {recipes.map((recipe) => (
+                <button key={recipe.id} className="choice" onClick={() => loadRecipe(recipe)}>
+                  {recipe.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </aside>
         <div className="stage-wrap">
           <div className="phone">
-            <div className="phone-scene" />
-            {slot?.previewUrl ? <video src={slot.previewUrl} muted playsInline /> : null}
+            <div className="phone-scene">
+              <span className="scene-path" />
+              <span className="scene-tree" />
+            </div>
+            {slot?.previewUrl ? <video src={slot.previewUrl} autoPlay playsInline /> : null}
             <div className="phone-title">{paint(headline, color, accentWords)}</div>
             {showRank ? <div className="phone-rank">#{slot?.rank}</div> : null}
             <div className="phone-clip" style={{ WebkitTextStroke: `${stroke}px #111` }}>
@@ -341,10 +441,19 @@ export function RankingStudio({
               <div className="stack">
                 <span className="field-label">In and Out</span>
                 <div className="inout">
-                  <ClockField label="In" value={slot.inSec} onCommit={(next) => patch({ inSec: next })} />
+                  <ClockField
+                    label="In"
+                    value={slot.inSec}
+                    onCommit={(next) => patch({ inSec: clampIn(next, slot.outSec, slot.duration) })}
+                  />
                   <span className="inout-dash">–</span>
-                  <ClockField label="Out" value={slot.outSec} onCommit={(next) => patch({ outSec: next })} />
+                  <ClockField
+                    label="Out"
+                    value={slot.outSec}
+                    onCommit={(next) => patch({ outSec: clampOut(next, slot.inSec, slot.duration) })}
+                  />
                 </div>
+                {slot.duration > 0 ? <p className="muted">This file is {slot.duration.toFixed(1)}s. In and out stay inside it.</p> : null}
               </div>
               <div className="nudge-row">
                 <span>Earlier</span>
