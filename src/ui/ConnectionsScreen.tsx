@@ -339,6 +339,9 @@ export function ConnectionsScreen({
                       <span>Base URL</span>
                       <input className="field" value={form.baseUrl} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} />
                     </label>
+                    {form.kind === "other" ? (
+                      <p className="muted tiny">A Gemini API key can go on this row.</p>
+                    ) : null}
                     <label className="stack">
                       <span>Format</span>
                       <select className="field" value={form.api} onChange={(event) => setForm({ ...form, api: event.target.value as ChatApi })}>

@@ -8,3 +8,4 @@ resources/ffmpeg
 *.log
 out/
 tmp/
+docs/polish-shots/

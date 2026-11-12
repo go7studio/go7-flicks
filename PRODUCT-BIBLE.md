@@ -444,4 +444,4 @@ One channel folder can be copied from one PC to the other. The other boy uses Op
 
 2026-11-07. Drove the running Electron app on port 9223 through home, the ranking desk, the split desk, and the canvas. Cut export 192 ms (top picture). Styled export 3784 ms, encoder h264_videotoolbox, 1080×1920, 30 fps, about 1 second, both pictures and audio. A fake TikTok link was stored on a clip and was not fetched.
 
-2026-11-10. Which clip is on the ranking desk under the headline, and on the canvas under Text and style. No chat row was connected. Claude’s login had expired, Codex was untested, and Cursor was not logged in. The control said so and did not invent a ranking. Shot: `docs/polish-shots/walk/assistant.png`.
+2026-11-10. Which clip is on the ranking desk under the headline, and on the canvas under Text and style. No chat row was connected. Claude’s login had expired, Codex was untested, and Cursor was not logged in. The control said so and did not invent a ranking.
