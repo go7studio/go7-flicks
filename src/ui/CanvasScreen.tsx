@@ -3,20 +3,35 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FlickProps } from "../remotion/FlickComposition";
 import { FlickComposition } from "../remotion/FlickComposition";
 import {
+  assignLinesInOrder,
   clipAt,
   deleteClip,
   dragSeam,
+  exportSavePath,
   fitClipsToMedia,
   fullFrame,
+  importedLines,
+  lineSizeOf,
   moveClip,
   placeClip,
   splitClip,
   splitEvenly,
+  storedLineColor,
+  storedLineSize,
+  storedTitleFont,
+  shelfName,
+  spokenLine,
+  storedWarmth,
   trimClip,
   visibleRegions,
+  warmthOf,
 } from "../shared/canvas";
-import { clipDuration, timelineEnd, uid, type Clip, type ConnectionPublic, type Flick, type ShelfEntry, type Template } from "../shared/model";
+import { clipDuration, timelineEnd, uid, type CallResult, type Clip, type ConnectionPublic, type Flick, type ShelfEntry, type Template } from "../shared/model";
 import type { ResolvedMedia } from "../shared/api";
+import type { AssistClip } from "../shared/assist";
+import { whenPhrase } from "../shared/when";
+import { StyleFields } from "./StyleFields";
+import { WhichClip } from "./WhichClip";
 
 function mediaLimit(media: ResolvedMedia[], mediaId: string | null): number | undefined {
   if (!mediaId) return undefined;
@@ -24,15 +39,101 @@ function mediaLimit(media: ResolvedMedia[], mediaId: string | null): number | un
   return duration > 0 ? duration : undefined;
 }
 
+type LaneKind = "rank" | "loop" | "face" | "game" | "video" | "other";
+
+function laneKind(name: string): LaneKind {
+  const key = name.trim().toLowerCase();
+  if (key === "rank" || key === "top") return "rank";
+  if (key === "loop" || key === "bottom") return "loop";
+  if (key === "face") return "face";
+  if (key === "gameplay") return "game";
+  if (key === "video") return "video";
+  return "other";
+}
+
+function shelfTitle(fileName: string, peers: { id: string; name: string }[] = [], selfId = ""): string {
+  const parts = shelfName(fileName, peers, selfId);
+  return parts.mark ? `${parts.title} ${parts.mark}` : parts.title;
+}
+
+function blockTitle(label: string, fileName?: string): string {
+  const clean = label.trim();
+  if (/^#\d+$/.test(clean)) return clean;
+  const spoken = spokenLine(clean);
+  if (spoken) return spoken;
+  if (fileName) return shelfTitle(fileName);
+  return "Clip";
+}
+
+function lengthLabel(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "—";
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${minutes}:${rest.toString().padStart(2, "0")}`;
+}
+
+function clipWords(clip: Clip, showRank: boolean | undefined): string {
+  const line = spokenLine(clip.line);
+  const rank = showRank === false ? "" : (clip.label.trim().match(/^#\d+$/)?.[0] ?? "");
+  return [rank, line].filter(Boolean).join(" · ");
+}
+
+function shelfCopies(assets: ResolvedMedia[]): { asset: ResolvedMedia; copy: number }[] {
+  const counts = new Map<string, number>();
+  for (const asset of assets) {
+    const key = asset.name.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  return assets.map((asset) => {
+    const key = asset.name.toLowerCase();
+    const next = (seen.get(key) ?? 0) + 1;
+    seen.set(key, next);
+    return { asset, copy: (counts.get(key) ?? 0) > 1 ? next : 0 };
+  });
+}
+
+function LeaveNav({
+  onHome,
+  onLibrary,
+  onChannel,
+  channelName,
+}: {
+  onHome: () => void;
+  onLibrary: () => void;
+  onChannel: () => void;
+  channelName: string;
+}) {
+  const channelLabel = channelName.trim() ? `Back to ${channelName.trim()}` : "Back to channel";
+  return (
+    <nav className="canvas-nav" aria-label="Leave this flick">
+      <button className="btn nav-btn" onClick={onHome}>
+        Home
+      </button>
+      <button className="btn nav-btn" onClick={onLibrary}>
+        Library
+      </button>
+      <button className="btn nav-btn nav-leave" onClick={onChannel} title={channelLabel}>
+        ← {channelLabel}
+      </button>
+    </nav>
+  );
+}
+
 export function CanvasScreen({
   dir,
   flickId,
   onBack,
+  onHome,
+  onLibrary,
   onConnections,
 }: {
   dir: string;
   flickId: string;
   onBack: () => void;
+  onHome: () => void;
+  onLibrary: () => void;
   onConnections: () => void;
 }) {
   const [flick, setFlick] = useState<Flick | null>(null);
@@ -43,6 +144,7 @@ export function CanvasScreen({
   const [connections, setConnections] = useState<ConnectionPublic[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [shelf, setShelf] = useState<ShelfEntry[]>([]);
+  const [shelfQuery, setShelfQuery] = useState("");
   const [chatId, setChatId] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [encoder, setEncoder] = useState("Checking encoder…");
@@ -54,9 +156,13 @@ export function CanvasScreen({
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [replaceId, setReplaceId] = useState("");
+  const [pasted, setPasted] = useState("");
   const playerRef = useRef<PlayerRef>(null);
   const flickRef = useRef<Flick | null>(null);
   const dirty = useRef(false);
+  const saveChain = useRef(Promise.resolve());
+  const saveTimer = useRef(0);
+  const saveWave = useRef(0);
   const frameRef = useRef<HTMLDivElement>(null);
   const past = useRef<Flick[]>([]);
   const future = useRef<Flick[]>([]);
@@ -112,17 +218,68 @@ export function CanvasScreen({
     return () => player.removeEventListener("frameupdate", onFrame);
   }, [flick?.id]);
 
+  function enqueueSave(folder: string, snapshot: Flick, report: boolean): Promise<CallResult> {
+    const ticket = ++saveWave.current;
+    const run = saveChain.current.then(async () => {
+      if (ticket !== saveWave.current) return { ok: true, message: "Saved." };
+      if (!window.flicks) return { ok: false, message: "Could not save the flick." };
+      let result: CallResult;
+      try {
+        result = await window.flicks.saveFlick(folder, snapshot);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save the flick.";
+        if (report && ticket === saveWave.current) setMessage(message);
+        return { ok: false, message };
+      }
+      if (ticket !== saveWave.current) return { ok: true, message: "Saved." };
+      if (!result.ok) {
+        if (report) setMessage(result.message || "Could not save the flick.");
+        return result;
+      }
+      if (flickRef.current === snapshot) dirty.current = false;
+      return result;
+    });
+    saveChain.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  async function flushSave(folder: string): Promise<CallResult> {
+    window.clearTimeout(saveTimer.current);
+    saveWave.current += 1;
+    let result: CallResult = { ok: true, message: "Saved." };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await saveChain.current;
+      const snapshot = flickRef.current;
+      if (!snapshot || !dirty.current) return result;
+      result = await enqueueSave(folder, snapshot, true);
+      if (!result.ok) return result;
+    }
+    return result;
+  }
+
   useEffect(() => {
     if (!dirty.current || !flick) return;
-    const handle = window.setTimeout(() => {
-      void window.flicks!.saveFlick(dir, flick);
+    const folder = dir;
+    const snapshot = flick;
+    const wave = saveWave.current;
+    saveTimer.current = window.setTimeout(() => {
+      if (wave !== saveWave.current || flickRef.current !== snapshot) return;
+      void enqueueSave(folder, snapshot, true);
     }, 350);
-    return () => window.clearTimeout(handle);
+    return () => window.clearTimeout(saveTimer.current);
   }, [flick, dir]);
 
   useEffect(() => {
+    const folder = dir;
     return () => {
-      if (dirty.current && flickRef.current) void window.flicks?.saveFlick(dir, flickRef.current);
+      window.clearTimeout(saveTimer.current);
+      saveWave.current += 1;
+      const current = flickRef.current;
+      if (!dirty.current || !current) return;
+      void enqueueSave(folder, current, false);
     };
   }, [dir]);
 
@@ -132,6 +289,31 @@ export function CanvasScreen({
     dirty.current = true;
     flickRef.current = next;
     setFlick(next);
+  }
+
+  function pasteLines() {
+    const current = flickRef.current;
+    if (!current || !selectedClip) {
+      setMessage("Select a cut, then paste the lines.");
+      return;
+    }
+    const lines = importedLines(pasted);
+    if (!lines.length) {
+      setMessage("Paste one line per cut.");
+      return;
+    }
+    const start = current.clips.find((clip) => clip.id === selectedClip);
+    if (!start) return;
+    const ids = current.clips
+      .filter((clip) => clip.trackId === start.trackId)
+      .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id))
+      .map((clip) => clip.id);
+    const assigned = assignLinesInOrder(ids, lines, selectedClip);
+    edit({
+      ...current,
+      clips: current.clips.map((clip) => (assigned.has(clip.id) ? { ...clip, line: assigned.get(clip.id) } : clip)),
+    });
+    setMessage(assigned.size === 1 ? "Put 1 line on the cuts." : `Put ${assigned.size} lines on the cuts.`);
   }
 
   function undo() {
@@ -167,6 +349,10 @@ export function CanvasScreen({
       accentWords: flick.accentWords,
       titleStroke: flick.titleStroke,
       showRank: flick.showRank,
+      titleFont: flick.titleFont,
+      lineColor: flick.lineColor,
+      lineSize: flick.lineSize,
+      pictureWarmth: flick.pictureWarmth,
       regions: flick.regions,
       tracks: flick.tracks,
       voiceSrc: voiceUrl ?? undefined,
@@ -181,6 +367,7 @@ export function CanvasScreen({
         outSec: clip.outSec,
         label: clip.label,
         line: clip.line,
+        focus: clip.focus,
         src: media.find((item) => item.id === clip.mediaId)?.previewUrl ?? undefined,
       })),
     };
@@ -221,6 +408,16 @@ export function CanvasScreen({
     edit({ ...flick, clips: splitClip(flick.clips, target, playhead) });
   }
 
+  function chooseTrack(trackId: string) {
+    if (!flick) return;
+    const region = flick.regions.find((item) => item.trackId === trackId);
+    if (region) setSelectedRegion(region.id);
+    const clips = flick.clips.filter((clip) => clip.trackId === trackId).sort((a, b) => a.startSec - b.startSec);
+    const under = clips.find((clip) => playhead >= clip.startSec && playhead < clip.startSec + clipDuration(clip));
+    const next = under ?? clips[0];
+    if (next) setSelectedClip(next.id);
+  }
+
   async function addMusic() {
     if (!flick) return;
     const result = await window.flicks!.importAudio(dir);
@@ -231,7 +428,7 @@ export function CanvasScreen({
     setMedia(result.media);
     edit({ ...flick, musicId: result.asset.id });
     setShelf(await window.flicks!.shelf());
-    setMessage(result.asset.name);
+    setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
   }
 
   async function useSaved(id: string) {
@@ -245,10 +442,57 @@ export function CanvasScreen({
     if (result.kind === "audio") {
       edit({ ...flick, musicId: result.asset.id, musicCredit: result.credit || flick.musicCredit });
     }
-    setMessage(result.asset.name);
+    setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+  }
+
+  async function getLink() {
+    if (!flick) return;
+    const current = flick.clips.find((clip) => clip.id === selectedClip);
+    const url = current?.sourceUrl?.trim() ?? "";
+    if (!url) {
+      setMessage("Paste a link on the selected cut.");
+      return;
+    }
+    setBusy("Getting the clip…");
+    const result = await window.flicks!.downloadMedia(dir, url);
+    setBusy("");
+    if (!result.ok || !result.asset || !result.media) {
+      setMessage(result.message ?? "Could not get that clip.");
+      return;
+    }
+    setMedia(result.media);
+    setShelf(await window.flicks!.shelf());
+    const duration = result.asset.durationSec > 0 ? result.asset.durationSec : 3;
+    const sourceUrl = result.sourceUrl || url;
+    const name = result.asset.name.replace(/\.[^.]+$/, "");
+    setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+    if (current) {
+      let clips = flick.clips.map((clip) =>
+        clip.id === current.id ? { ...clip, mediaId: result.asset!.id, sourceUrl, label: clip.label || name } : clip,
+      );
+      clips = trimClip(clips, current.id, "in", 0, duration);
+      clips = trimClip(clips, current.id, "out", duration, duration);
+      edit({ ...flick, clips });
+    } else {
+      const region = flick.regions.find((item) => item.id === selectedRegion) ?? visibleRegions(flick.regions)[0];
+      if (!region) return;
+      const clip: Clip = {
+        id: uid(),
+        mediaId: result.asset.id,
+        trackId: region.trackId,
+        startSec: 0,
+        inSec: 0,
+        outSec: Math.round(duration * 1000) / 1000,
+        label: name,
+        sourceUrl,
+      };
+      edit({ ...flick, clips: placeClip(flick.clips, region.trackId, clip) });
+      setSelectedClip(clip.id);
+    }
   }
 
   async function addMedia(mode: "copy" | "link") {
+    setMessage("Adding the clip…");
     const result = await window.flicks!.importMedia(dir, mode);
     if (!result.ok || !result.media) {
       setMessage(result.message ?? "Could not add that file.");
@@ -256,11 +500,23 @@ export function CanvasScreen({
     }
     setMedia(result.media);
     setShelf(await window.flicks!.shelf());
-    setMessage(mode === "copy" ? "Copied into the channel." : "Linked the file.");
+    setMessage(
+      result.workingCopy
+        ? "Working copy is on this computer."
+        : mode === "copy"
+          ? "Copied into the channel."
+          : "Linked the file.",
+    );
   }
 
-  function addToTrack(asset: ResolvedMedia, trackId: string) {
+  async function addToTrack(asset: ResolvedMedia, trackId: string) {
     if (!flick) return;
+    const staged = await window.flicks!.stageMedia(dir, asset.id);
+    if (!staged.ok || !staged.media) {
+      setMessage(staged.message ?? "Could not copy that file onto this computer.");
+      return;
+    }
+    setMedia(staged.media);
     const duration = asset.durationSec > 0 ? asset.durationSec : 3;
     const clip: Clip = {
       id: uid(),
@@ -339,17 +595,34 @@ export function CanvasScreen({
   }
 
   async function exportFlick(kind: "cut" | "styled") {
-    if (!flick) return;
-    if (dirty.current) await window.flicks!.saveFlick(dir, flick);
-    const output = await window.flicks!.pickSave(`${dir}/exports/${flick.name}.mp4`);
+    const named = flickRef.current;
+    if (!named) return;
+    const primed = await flushSave(dir);
+    if (!primed.ok) {
+      setMessage(primed.message || "Could not save the flick before export.");
+      return;
+    }
+    const output = await window.flicks!.pickSave(exportSavePath(dir, named.name));
     if (!output) return;
+    const flushed = await flushSave(dir);
+    if (!flushed.ok) {
+      setMessage(flushed.message || "Could not save the flick before export.");
+      return;
+    }
+    const latest = flickRef.current;
+    if (!latest) return;
     setBusy(kind === "cut" ? "Cutting…" : "Rendering…");
-    const result =
-      kind === "cut"
-        ? await window.flicks!.exportCut(dir, flick.id, output)
-        : await window.flicks!.exportStyled(dir, flick.id, output);
-    setBusy("");
-    setMessage(result.ok ? `Saved ${output}` : result.message ?? "Export failed.");
+    try {
+      const result =
+        kind === "cut"
+          ? await window.flicks!.exportCut(dir, latest.id, output)
+          : await window.flicks!.exportStyled(dir, latest.id, output);
+      setMessage(result.ok ? `Saved ${output}` : result.message ?? "Export failed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Export failed.");
+    } finally {
+      setBusy("");
+    }
   }
 
   function onSeam(regionId: string, event: React.PointerEvent) {
@@ -379,6 +652,7 @@ export function CanvasScreen({
   if (!flick || !preview) {
     return (
       <main className="page">
+        <LeaveNav onHome={onHome} onLibrary={onLibrary} onChannel={onBack} channelName={channelName} />
         <p className="banner">{message || "Opening flick…"}</p>
       </main>
     );
@@ -387,15 +661,35 @@ export function CanvasScreen({
   const selected = flick.clips.find((clip) => clip.id === selectedClip) ?? null;
   const regions = visibleRegions(flick.regions);
   const seconds = Math.max(timelineEnd(flick.clips), 1);
+  const headlineText = flick.headline?.replace(/\s+/g, " ").trim() ?? "";
+  const wordClips = flick.clips
+    .map((clip) => ({ clip, text: clipWords(clip, flick.showRank) }))
+    .filter((item) => item.text);
+  const wordTrackIds = flick.tracks.map((track) => track.id).filter((id) => wordClips.some((item) => item.clip.trackId === id));
+  const wordsLaneHeight = Math.max(56, (headlineText ? 32 : 10) + wordTrackIds.length * 26 + 10);
+  const clipQuery = shelfQuery.trim().toLowerCase();
+  const videoAssets = shelfCopies(media.filter((asset) => asset.width > 0));
+  const shelfPeers = videoAssets.map(({ asset }) => ({ id: asset.id, name: asset.name }));
+  const selectedTrackName = flick.tracks.find((track) => track.id === selected?.trackId)?.name.trim() || "This cut";
+  const visibleAssets = videoAssets.filter(({ asset }) => {
+    if (!clipQuery) return true;
+    const parts = shelfName(asset.name, shelfPeers, asset.id);
+    const title = `${parts.title} ${parts.mark}`.toLowerCase();
+    return asset.name.toLowerCase().includes(clipQuery) || title.includes(clipQuery);
+  });
+  const usedVideos = shelf.filter(
+    (item) =>
+      item.kind === "video" &&
+      (!clipQuery || item.name.toLowerCase().includes(clipQuery) || shelfTitle(item.name).toLowerCase().includes(clipQuery)),
+  );
 
   return (
     <div className="app">
       <header className="toolbar">
-        <button className="btn-ghost" onClick={onBack}>
-          Channel
-        </button>
+        <LeaveNav onHome={onHome} onLibrary={onLibrary} onChannel={onBack} channelName={channelName} />
         <input
-          className="field"
+          className="field flick-name"
+          aria-label="Flick name"
           value={flick.name}
           onChange={(event) => edit({ ...flick, name: event.target.value })}
         />
@@ -404,7 +698,12 @@ export function CanvasScreen({
         <button className="btn" onClick={onConnections}>
           Connections
         </button>
-        <button className="btn" disabled={encoder === "ffmpeg missing" || Boolean(busy)} onClick={() => void exportFlick("cut")}>
+        <button
+          className="btn"
+          title={regions.length >= 2 ? "Keeps the top picture. Sound is the voice and the music." : "Export the cut."}
+          disabled={encoder === "ffmpeg missing" || Boolean(busy)}
+          onClick={() => void exportFlick("cut")}
+        >
           {regions.length >= 2 ? "Export cut · keeps the top picture" : "Export cut"}
         </button>
         <button className="btn-primary" disabled={Boolean(busy)} onClick={() => void exportFlick("styled")}>
@@ -413,44 +712,111 @@ export function CanvasScreen({
       </header>
       {message ? <p className="banner">{message}</p> : null}
       <div className="workspace">
-        <aside className="rail stack">
-          <div className="row">
-            <button className="btn-small btn" onClick={() => void addMedia("copy")}>
-              Add clip
-            </button>
-            <button className="btn-small btn" onClick={() => void addMedia("link")}>
-              Link clip
-            </button>
+        <aside className="rail shelf-rail">
+          <div className="shelf-sticky">
+            <div className="shelf-head">
+              <h2>Clips</h2>
+              <p className="shelf-purpose">Place these on the timeline.</p>
+            </div>
+            <label className="shelf-search">
+              <span className="sr-only">Find a clip</span>
+              <input
+                className="field"
+                value={shelfQuery}
+                placeholder="Find a clip"
+                onChange={(event) => setShelfQuery(event.target.value)}
+              />
+            </label>
+            {videoAssets.length ? (
+              <p className="shelf-count">
+                <span>{clipQuery ? `${visibleAssets.length} of ${videoAssets.length}` : `${videoAssets.length} clips`}</span>
+                {clipQuery ? (
+                  <button className="btn btn-small" onClick={() => setShelfQuery("")}>
+                    Show all
+                  </button>
+                ) : null}
+              </p>
+            ) : null}
+            <div className="shelf-actions">
+              <button className="btn shelf-add" title="Copies the file into this channel." onClick={() => void addMedia("copy")}>
+                Add clip
+              </button>
+              <button
+                className="btn shelf-add"
+                title="A local file stays where it is. A network file is copied onto this computer."
+                onClick={() => void addMedia("link")}
+              >
+                Link clip
+              </button>
+            </div>
           </div>
-          {media.filter((asset) => asset.width > 0).map((asset) => (
-            <div key={asset.id} className="panel stack">
-              <strong>{asset.name}</strong>
-              <span className="muted tiny">
-                {asset.missing ? "Missing" : `${asset.durationSec.toFixed(1)}s`}
-                {asset.absolutePath && !asset.relativePath ? " · linked" : ""}
-              </span>
-              <div className="row">
-                {flick.tracks.map((track) => (
-                  <button key={track.id} className="btn-small btn" onClick={() => addToTrack(asset, track.id)}>
-                    {track.name}
-                  </button>
-                ))}
+          <div className="shelf-list">
+            {visibleAssets.map(({ asset, copy }) => {
+              const onTimeline = selected?.mediaId === asset.id;
+              const linked = Boolean(asset.absolutePath && !asset.relativePath);
+              const parts = shelfName(asset.name, shelfPeers, asset.id);
+              const made = asset.madeAt ? whenPhrase("Made", asset.madeAt) : null;
+              const status = [
+                made ?? "",
+                asset.missing ? "Missing" : "",
+                asset.workingCopy ? "On this computer" : linked ? "Linked" : "",
+                onTimeline ? "On the timeline" : "",
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <div key={asset.id} className={onTimeline ? "shelf-row on" : "shelf-row"}>
+                  <div className="shelf-row-main">
+                    <strong className="shelf-name" title={parts.mark ? `${parts.title} · ${parts.mark}` : asset.name}>
+                      <span className="shelf-name-text">{parts.title}</span>
+                      {parts.mark ? <span className="shelf-mark">{parts.mark}</span> : null}
+                      {copy > 0 && !parts.mark ? <span className="shelf-index">{copy}</span> : null}
+                    </strong>
+                    <span className="shelf-time">{asset.missing ? "Missing" : lengthLabel(asset.durationSec)}</span>
+                  </div>
+                  {status ? <p className="shelf-meta">{status}</p> : null}
+                  <div className="shelf-places">
+                    {flick.tracks.map((track) => {
+                      const region = flick.regions.find((item) => item.trackId === track.id);
+                      const selectedHere = Boolean(region && region.id === selectedRegion);
+                      const where = track.name.trim() || "Track";
+                      const placeLabel = flick.tracks.length === 1 ? "Place" : `Place · ${where}`;
+                      return (
+                        <button
+                          key={track.id}
+                          className={selectedHere ? "btn shelf-place on" : "btn shelf-place"}
+                          title={`Places this clip at the end of ${where}.`}
+                          onClick={() => void addToTrack(asset, track.id)}
+                        >
+                          {placeLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            {!videoAssets.length ? (
+              <p className="shelf-empty">No clips yet. Add one from this computer, or paste a link on a cut and press Get.</p>
+            ) : null}
+            {videoAssets.length > 0 && visibleAssets.length === 0 ? (
+              <p className="shelf-empty">Nothing matches. Show all to see every clip.</p>
+            ) : null}
+            {usedVideos.length ? (
+              <div className="stack used-clips">
+                <p className="rail-label">Used before</p>
+                {usedVideos.map((item) => {
+                  const made = item.madeAt ? whenPhrase("Made", item.madeAt) : null;
+                  return (
+                    <button key={item.id} className="btn used-clip" title={item.name} onClick={() => void useSaved(item.id)}>
+                      <span className="used-clip-name">{shelfTitle(item.name)}</span>
+                      {made ? <span className="used-made">{made}</span> : null}
+                    </button>
+                  );
+                })}
               </div>
-            </div>
-          ))}
-          {!media.some((asset) => asset.width > 0) ? <p className="muted">Add a video from this computer. A pasted link is only a note.</p> : null}
-          {shelf.some((item) => item.kind === "video") ? (
-            <div className="stack">
-              <p className="rail-label">Used clips</p>
-              {shelf
-                .filter((item) => item.kind === "video")
-                .map((item) => (
-                  <button key={item.id} className="btn" onClick={() => void useSaved(item.id)}>
-                    {item.name}
-                  </button>
-                ))}
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </aside>
         <div className="stage-wrap">
           <div className="frame-wrap" ref={frameRef}>
@@ -493,6 +859,52 @@ export function CanvasScreen({
         </div>
         <aside className="inspector stack">
           <p className="tiny muted">Canvas</p>
+          <StyleFields
+            font={flick.titleFont}
+            lineSize={flick.lineSize}
+            lineColor={flick.lineColor}
+            warmth={flick.pictureWarmth}
+            pasted={pasted}
+            pasteHint="One line per cut, from the selected cut forward."
+            onFont={(face) => edit({ ...flick, titleFont: storedTitleFont(face) })}
+            onLineSize={(size) => edit({ ...flick, lineSize: lineSizeOf(size) }, "replace")}
+            onLineColor={(next) => edit({ ...flick, lineColor: next })}
+            onWarmth={(value) => edit({ ...flick, pictureWarmth: storedWarmth(warmthOf(value)) }, "replace")}
+            onPasted={setPasted}
+            onPaste={pasteLines}
+          />
+          <WhichClip
+            clips={flick.clips.flatMap((clip): AssistClip[] => {
+              const line = spokenLine(clip.line);
+              const asset = media.find((item) => item.id === clip.mediaId);
+              if (clip.label === "Loop" && !clip.mediaId && !line) return [];
+              const fromFile = asset ? shelfName(asset.name).title : "";
+              const name = line || fromFile || clip.label.trim() || "Clip";
+              if (!clip.mediaId && !line && !clip.label.trim()) return [];
+              return [
+                {
+                  id: clip.id,
+                  name,
+                  line,
+                  lengthSec: clipDuration(clip),
+                  date: asset?.madeAt ? whenPhrase("Made", asset.madeAt) ?? "no date" : "no date",
+                },
+              ];
+            })}
+            disabled={Boolean(busy)}
+            onHeadline={(headline) => {
+              const current = flickRef.current;
+              if (current) edit({ ...current, headline });
+            }}
+            onTitle={(id, title) => {
+              const current = flickRef.current;
+              if (!current) return;
+              edit({
+                ...current,
+                clips: current.clips.map((clip) => (clip.id === id ? { ...clip, line: title } : clip)),
+              });
+            }}
+          />
           <div className="row">
             <button
               className="btn-small btn"
@@ -506,13 +918,13 @@ export function CanvasScreen({
             </button>
           </div>
           <div className="row">
-            <button className="btn-small btn" disabled={pastCount === 0} onClick={undo}>
+            <button className="btn-small btn lane-history" disabled={pastCount === 0} onClick={undo}>
               Undo
             </button>
-            <button className="btn-small btn" disabled={futureCount === 0} onClick={redo}>
+            <button className="btn-small btn lane-history" disabled={futureCount === 0} onClick={redo}>
               Redo
             </button>
-            <button className="btn-small btn" onClick={splitAtPlayhead}>
+            <button className="btn-small lane-split" onClick={splitAtPlayhead}>
               Split
             </button>
             <button
@@ -560,21 +972,32 @@ export function CanvasScreen({
                 />
               </label>
               <label className="stack">
-                <span>Source link</span>
-                <input
-                  className="field"
-                  value={selected.sourceUrl ?? ""}
-                  placeholder="Saved as a note. Not downloaded."
-                  onChange={(event) =>
-                    edit({
-                      ...flick,
-                      clips: flick.clips.map((clip) =>
-                        clip.id === selected.id ? { ...clip, sourceUrl: event.target.value } : clip,
-                      ),
-                    })
-                  }
-                />
+                <span>Link</span>
+                <span className="link-line">
+                  <input
+                    className="field"
+                    value={selected.sourceUrl ?? ""}
+                    placeholder="Paste a link"
+                    onChange={(event) =>
+                      edit({
+                        ...flick,
+                        clips: flick.clips.map((clip) =>
+                          clip.id === selected.id ? { ...clip, sourceUrl: event.target.value } : clip,
+                        ),
+                      })
+                    }
+                  />
+                  <button className="btn-small btn" disabled={Boolean(busy)} onClick={() => void getLink()}>
+                    Get
+                  </button>
+                </span>
               </label>
+              <div className="cut-own">
+                <p>{selectedTrackName} · this cut</p>
+                <p className="cut-own-range">
+                  In {clock(selected.inSec)} · Out {clock(selected.outSec)} · {lengthLabel(clipDuration(selected))} long
+                </p>
+              </div>
               <div className="row">
                 <label className="stack">
                   <span>In</span>
@@ -609,9 +1032,7 @@ export function CanvasScreen({
                   />
                 </label>
               </div>
-              {mediaLimit(media, selected.mediaId) ? (
-                <p className="muted">This file is {mediaLimit(media, selected.mediaId)?.toFixed(1)}s. In and out stay inside it.</p>
-              ) : null}
+              <p className="muted">In and out are this cut. They stay inside the file{mediaLimit(media, selected.mediaId) ? ` (${mediaLimit(media, selected.mediaId)?.toFixed(1)}s)` : ""}.</p>
               <label className="stack">
                 <span>Write line with</span>
                 <select className="field" value={chatId} onChange={(event) => setChatId(event.target.value)}>
@@ -659,7 +1080,7 @@ export function CanvasScreen({
               </button>
             </>
           ) : (
-            <p className="muted">Select a cut on the timeline. Split with B. Delete closes the gap.</p>
+            <p className="muted">Select a cut on its lane. Split cuts it at the playhead. Delete closes the gap.</p>
           )}
           <div className="row">
             <button className="btn" disabled={Boolean(busy)} onClick={() => void addMusic()}>
@@ -704,22 +1125,98 @@ export function CanvasScreen({
           </button>
           {flick.voiceRelative ? <p className="tiny muted">Voice is on this flick.</p> : null}
         </aside>
-        <section className="timeline">
-          <div className="row">
-            <button className="btn-small btn" onClick={() => playerRef.current?.toggle()}>
+        <section className="timeline" aria-label="Clipping lane">
+          <div className="lane-transport">
+            <button className="btn lane-play" onClick={() => playerRef.current?.toggle()}>
               Play
             </button>
-            <span className="tiny muted">
+            <span className="lane-clock">
               {clock(playhead)} / {clock(seconds)}
             </span>
+            <div className="lane-edits">
+              <button className="lane-split" onClick={splitAtPlayhead}>
+                Split
+              </button>
+              <button className="btn lane-history" disabled={pastCount === 0} onClick={undo}>
+                Undo
+              </button>
+              <button className="btn lane-history" disabled={futureCount === 0} onClick={redo}>
+                Redo
+              </button>
+            </div>
+            <p className="lane-range">
+              {selected ? (
+                <>
+                  <strong>{selectedTrackName}</strong>
+                  {` · this cut · In ${clock(selected.inSec)} · Out ${clock(selected.outSec)}`}
+                </>
+              ) : (
+                "Select a cut. In and out belong to that cut."
+              )}
+            </p>
           </div>
-          {flick.tracks.map((track) => {
-            const clips = flick.clips.filter((clip) => clip.trackId === track.id).sort((a, b) => a.startSec - b.startSec);
-            return (
-              <div className="track-row" key={track.id}>
-                <span className="tiny">{track.name}</span>
+          <div
+            className="lane-stack"
+            style={{ ["--at" as string]: String(Math.min(1, Math.max(0, playhead / seconds))) }}
+          >
+            <div className="playhead-rule" title="Playhead" />
+            {flick.tracks.map((track) => {
+              const clips = flick.clips.filter((clip) => clip.trackId === track.id).sort((a, b) => a.startSec - b.startSec);
+              const kind = laneKind(track.name);
+              const laneSelected = selected?.trackId === track.id;
+              const plateName = track.name.trim() || "Track";
+              return (
+                <div className={laneSelected ? `track-row lane-${kind} is-selected` : `track-row lane-${kind}`} key={track.id} data-lane={plateName}>
+                  <button type="button" className="lane-plate" aria-pressed={laneSelected} onClick={() => chooseTrack(track.id)}>
+                    <span className="lane-plate-name">{plateName}</span>
+                    <span className="lane-plate-role">Picture</span>
+                  </button>
+                  <div
+                    className="lane"
+                    onClick={(event) => {
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      const next = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * seconds;
+                      const frame = Math.max(0, Math.min(frames - 1, Math.round(next * flick.fps)));
+                      playerRef.current?.seekTo(frame);
+                      setPlayhead(frame / flick.fps);
+                    }}
+                  >
+                    {clips.map((clip) => (
+                      <button
+                        key={clip.id}
+                        className={clip.id === selectedClip ? "clip-block on" : "clip-block"}
+                        style={{
+                          left: `${(clip.startSec / seconds) * 100}%`,
+                          width: `${(clipDuration(clip) / seconds) * 100}%`,
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedClip(clip.id);
+                          setSelectedRegion(flick.regions.find((region) => region.trackId === clip.trackId)?.id ?? null);
+                        }}
+                      >
+                        <span className="handle left" onPointerDown={(event) => beginTrim(event, clip, "in")} />
+                        {clip.id === selectedClip ? <span className="cut-mark cut-in">In</span> : null}
+                        <span className="clip-title">
+                          {blockTitle(clip.label, media.find((item) => item.id === clip.mediaId)?.name)}
+                        </span>
+                        {clip.id === selectedClip ? <span className="cut-mark cut-out">Out</span> : null}
+                        <span className="handle right" onPointerDown={(event) => beginTrim(event, clip, "out")} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {headlineText || wordClips.length ? (
+              <div className="track-row words-row">
+                <div className="lane-plate">
+                  <span className="lane-plate-name">Words</span>
+                  <span className="lane-plate-role">On the phone</span>
+                </div>
                 <div
-                  className="lane"
+                  className="lane words-lane"
+                  style={{ height: wordsLaneHeight }}
                   onClick={(event) => {
                     const bounds = event.currentTarget.getBoundingClientRect();
                     const next = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * seconds;
@@ -728,36 +1225,40 @@ export function CanvasScreen({
                     setPlayhead(frame / flick.fps);
                   }}
                 >
-                  <div className="playhead" style={{ left: `${(playhead / seconds) * 100}%` }} />
-                  {clips.map((clip) => (
-                    <button
-                      key={clip.id}
-                      className={clip.id === selectedClip ? "clip-block on" : "clip-block"}
-                      style={{
-                        left: `${(clip.startSec / seconds) * 100}%`,
-                        width: `${(clipDuration(clip) / seconds) * 100}%`,
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setSelectedClip(clip.id);
-                        setSelectedRegion(flick.regions.find((region) => region.trackId === clip.trackId)?.id ?? null);
-                      }}
-                    >
-                      <span
-                        className="handle left"
-                        onPointerDown={(event) => beginTrim(event, clip, "in")}
-                      />
-                      {clip.label}
-                      <span
-                        className="handle right"
-                        onPointerDown={(event) => beginTrim(event, clip, "out")}
-                      />
-                    </button>
-                  ))}
+                  {headlineText ? (
+                    <div className="word-span word-headline" title={headlineText}>
+                      <span className="word-who">Headline</span>
+                      <span className="word-line">{headlineText}</span>
+                    </div>
+                  ) : null}
+                  {wordClips.map(({ clip, text }) => {
+                    const track = flick.tracks.find((item) => item.id === clip.trackId);
+                    const trackIndex = Math.max(0, wordTrackIds.indexOf(clip.trackId));
+                    const kind = laneKind(track?.name ?? "");
+                    return (
+                      <div
+                        key={clip.id}
+                        className={clip.id === selectedClip ? `word-span word-${kind} on` : `word-span word-${kind}`}
+                        title={`${track?.name ?? "Line"} · ${text}`}
+                        style={{
+                          left: `${(clip.startSec / seconds) * 100}%`,
+                          width: `${Math.max((clipDuration(clip) / seconds) * 100, 0)}%`,
+                          top: (headlineText ? 30 : 8) + trackIndex * 26,
+                        }}
+                      >
+                        <span className="word-who">{track?.name.trim() || "Line"}</span>
+                        <span className="word-line">
+                          {text}
+                          {clip.id === selectedClip ? ` · In ${clock(clip.inSec)} · Out ${clock(clip.outSec)}` : ""}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            );
-          })}
+            ) : null}
+          </div>
+          <p className="lane-note">A flick shows its own lanes: Rank and Loop, or Face and Gameplay, or Video alone.</p>
         </section>
       </div>
       {savingTemplate ? (
@@ -802,6 +1303,7 @@ export function CanvasScreen({
     const startX = event.clientX;
     const startIn = clip.inSec;
     const startOut = clip.outSec;
+    const limit = mediaLimit(media, clip.mediaId);
     const lane = (event.currentTarget.parentElement?.parentElement as HTMLElement | null)?.getBoundingClientRect();
     const width = lane?.width || 1;
     let pushed = false;
@@ -810,7 +1312,7 @@ export function CanvasScreen({
       if (!current) return;
       const delta = ((ev.clientX - startX) / width) * Math.max(timelineEnd(current.clips), 1);
       const value = edge === "in" ? startIn + delta : startOut + delta;
-      edit({ ...current, clips: trimClip(current.clips, clip.id, edge, value) }, pushed ? "replace" : "push");
+      edit({ ...current, clips: trimClip(current.clips, clip.id, edge, value, limit) }, pushed ? "replace" : "push");
       pushed = true;
     };
     const up = () => {

@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { builtinTemplates, flickFromTemplate, templateFromFlick } from "../src/shared/canvas";
+import { builtinTemplates, flickFromTemplate, storedLineColor, storedLineSize, storedTitleFont, storedWarmth, templateFromFlick } from "../src/shared/canvas";
 import {
   defaultsFor,
+  subscriptionRefusal,
   type ChannelFile,
   type ConnectionDraft,
   type ConnectionKind,
@@ -13,6 +14,7 @@ import {
   type Template,
   uid,
 } from "../src/shared/model";
+import { latestUpdatedAt } from "../src/shared/when";
 import { noteShelfCredit, rememberShelf } from "./shelf";
 import { deleteSecret, hasSecret, readJson, readSecret, saveSecret, userDir, writeJson } from "./vault";
 
@@ -20,14 +22,44 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type StoredConnection = Omit<ConnectionPublic, "hasCredential"> & { hasCredential?: boolean };
 
+function storedRecents(): { path: string; name: string }[] {
+  return readJson<RecentChannel[]>(path.join(userDir(), "recent.json"), [])
+    .filter((item) => item?.path && fs.existsSync(path.join(item.path, "channel.json")))
+    .map((item) => ({ path: item.path, name: item.name }));
+}
+
 export function recentChannels(): RecentChannel[] {
-  return readJson<RecentChannel[]>(path.join(userDir(), "recent.json"), []).filter((item) =>
-    fs.existsSync(path.join(item.path, "channel.json")),
-  );
+  return storedRecents().map((item) => {
+    const clippedAt = latestClipped(item.path);
+    const madeAt = channelTouched(item.path);
+    return {
+      ...item,
+      ...(clippedAt ? { clippedAt } : {}),
+      ...(madeAt ? { madeAt } : {}),
+    };
+  });
+}
+
+function channelTouched(dir: string): string | undefined {
+  try {
+    const file = path.join(dir, "channel.json");
+    if (!fs.existsSync(file)) return undefined;
+    return fs.statSync(file).mtime.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
+function latestClipped(dir: string): string | undefined {
+  try {
+    return latestUpdatedAt(readChannel(dir).flicks);
+  } catch {
+    return undefined;
+  }
 }
 
 export function rememberChannel(dir: string, name: string): void {
-  const next = [{ path: dir, name }, ...recentChannels().filter((item) => item.path !== dir)].slice(0, 12);
+  const next = [{ path: dir, name }, ...storedRecents().filter((item) => item.path !== dir)].slice(0, 12);
   writeJson(path.join(userDir(), "recent.json"), next);
 }
 
@@ -162,11 +194,13 @@ export function saveConnection(draft: ConnectionDraft): ConnectionPublic {
   const rows = readConnections();
   const id = draft.id && ID.test(draft.id) ? draft.id : uid();
   const existing = rows.find((item) => item.id === id);
-  const auth = kind === "claude" || kind === "codex" ? draft.auth : "key";
+  const auth = kind === "cursor" ? "cli" : kind === "claude" || kind === "codex" || kind === "grok" ? draft.auth : "key";
   if (auth === "key" && !draft.apiKey && !existing) throw new Error("Paste an API key.");
   if (kind === "other" && (!draft.baseUrl.trim() || !draft.model.trim())) {
     throw new Error("Other connections need a base URL and a model.");
   }
+  const blocked = subscriptionRefusal(draft.baseUrl || defaults.baseUrl, draft.model || defaults.model);
+  if (blocked) throw new Error(blocked);
   if (draft.apiKey) saveSecret(id, draft.apiKey.trim());
   const next: StoredConnection = {
     id,
@@ -264,12 +298,17 @@ function sanitizeFlick(flick: Flick): Flick {
     accentWords: flick.accentWords?.trim() || undefined,
     titleStroke: Number.isFinite(flick.titleStroke) ? flick.titleStroke : undefined,
     showRank: flick.showRank,
+    titleFont: storedTitleFont(flick.titleFont),
+    lineColor: storedLineColor(flick.lineColor),
+    lineSize: storedLineSize(flick.lineSize),
+    pictureWarmth: storedWarmth(flick.pictureWarmth),
     regions: flick.regions ?? [],
     tracks: flick.tracks ?? [],
     clips: (flick.clips ?? []).map((clip) => ({
       ...clip,
       sourceUrl: clip.sourceUrl?.trim() || undefined,
       line: clip.line?.trim() || undefined,
+      focus: typeof clip.focus === "number" && Number.isFinite(clip.focus) ? Math.min(1, Math.max(0, clip.focus)) : undefined,
     })),
   };
 }
@@ -291,5 +330,13 @@ function assertId(id: string): void {
 }
 
 function isKind(value: string): value is ConnectionKind {
-  return value === "claude" || value === "codex" || value === "elevenlabs" || value === "minimax" || value === "other";
+  return (
+    value === "claude" ||
+    value === "codex" ||
+    value === "grok" ||
+    value === "cursor" ||
+    value === "elevenlabs" ||
+    value === "minimax" ||
+    value === "other"
+  );
 }

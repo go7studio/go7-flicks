@@ -1,9 +1,12 @@
 import type { CallResult, ChannelFile, ConnectionDraft, ConnectionPublic, Flick, GpuProbe, MediaAsset, RecentChannel, ShelfEntry, Template } from "./model";
+import type { FoundClip } from "./subject";
 
 export type ResolvedMedia = MediaAsset & {
   absolutePath: string;
   missing: boolean;
   previewUrl: string | null;
+  workingCopy?: boolean;
+  madeAt?: string;
 };
 
 export type ChannelPayload = {
@@ -30,10 +33,16 @@ export type FlicksApi = {
   createFlick: (dir: string, name: string, templateId: string) => Promise<CallResult & { flick?: Flick }>;
   readFlick: (dir: string, flickId: string) => Promise<CallResult & Partial<FlickPayload>>;
   saveFlick: (dir: string, flick: Flick) => Promise<CallResult & { flick?: Flick }>;
-  importMedia: (dir: string, mode: "copy" | "link") => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[] }>;
-  importAudio: (dir: string) => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[] }>;
+  importMedia: (dir: string, mode: "copy" | "link") => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[]; workingCopy?: boolean }>;
+  downloadMedia: (dir: string, url: string) => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[]; sourceUrl?: string; workingCopy?: boolean }>;
+  findClips: (dir: string, subject: string, count: number) => Promise<CallResult & { clips?: FoundClip[]; media?: ResolvedMedia[]; workingCopy?: boolean }>;
+  importAudio: (dir: string) => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[]; workingCopy?: boolean }>;
+  stageMedia: (dir: string, assetId: string) => Promise<CallResult & { media?: ResolvedMedia[] }>;
+  staging: () => Promise<{ stagingDir: string }>;
+  chooseStaging: () => Promise<CallResult & { stagingDir?: string }>;
+  cleanUnused: () => Promise<CallResult & { removedCopies?: number; removedExports?: number }>;
   shelf: () => Promise<ShelfEntry[]>;
-  useShelf: (dir: string, id: string) => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[]; kind?: ShelfEntry["kind"]; credit?: string }>;
+  useShelf: (dir: string, id: string) => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[]; kind?: ShelfEntry["kind"]; credit?: string; workingCopy?: boolean }>;
   templates: () => Promise<Template[]>;
   saveTemplate: (flick: Flick, name: string, replaceId?: string) => Promise<CallResult & { template?: Template }>;
   connections: () => Promise<ConnectionPublic[]>;
@@ -42,6 +51,7 @@ export type FlicksApi = {
   testConnection: (id: string) => Promise<CallResult & { connection?: ConnectionPublic }>;
   setVoice: (id: string, voiceId: string) => Promise<CallResult & { connection?: ConnectionPublic }>;
   writeLine: (connectionId: string, prompt: string) => Promise<CallResult>;
+  askAssistant: (connectionId: string, prompt: string) => Promise<CallResult>;
   makeVoice: (connectionId: string, dir: string, flickId: string, text: string) => Promise<CallResult>;
   exportCut: (dir: string, flickId: string, outputPath: string) => Promise<CallResult>;
   exportStyled: (dir: string, flickId: string, outputPath: string) => Promise<CallResult>;

@@ -44,7 +44,7 @@ Proper git folder on DadOffice is `D:\GitHub\go7-flicks` (same pattern as `D:\Gi
 5. Home, Video Ranking or Split. Add clips that are already on this PC. Open timeline.
 6. The encoder line should read `h264_nvenc`, `h264_qsv`, `h264_amf`, or `software (libx264)`. Styled export on an NVIDIA PC uses `h264_nvenc`. QSV and AMF are not used on that styled path.
 7. Export cut or Export styled. Styled export uses bitrate 8M and does not set crf.
-8. A pasted TikTok, YouTube, or Instagram link is only a note. The app does not download it.
+8. Paste a link and press Get. The clip is saved in the channel.
 
 ## Wes
 

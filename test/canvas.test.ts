@@ -3,21 +3,29 @@ import test from "node:test";
 import {
   applyDualLayout,
   applyDualShare,
+  assignLinesInOrder,
   builtinTemplates,
   deleteClip,
   dragSeam,
   flickFromTemplate,
   fullFrame,
+  importedLines,
   moveClip,
   playbackOrder,
   splitClip,
   templateFromFlick,
   fitClipsToMedia,
+  exportSavePath,
   rankingClipRange,
   trimClip,
 } from "../src/shared/canvas";
 import { clipAudible, creditDrawtext, cutAudioFilter } from "../src/shared/mix";
 import { timelineEnd } from "../src/shared/model";
+
+test("an export path keeps the channel slash", () => {
+  assert.equal(exportSavePath("D:\\GitHub\\Parkour fails", "Walk check"), "D:\\GitHub\\Parkour fails\\exports\\Walk check.mp4");
+  assert.equal(exportSavePath("/channels/parkour/", "Walk check"), "/channels/parkour/exports/Walk check.mp4");
+});
 
 test("a template copies onto a flick and leaves the original alone", () => {
   const [split] = builtinTemplates();
@@ -109,6 +117,44 @@ test("saving a template keeps the layout and drops the media", () => {
   assert.ok(again.clips.every((clip) => clip.mediaId === null));
 });
 
+test("a flick keeps the font and the line color when the template drops the media", () => {
+  const flick = flickFromTemplate(builtinTemplates()[2], "Style");
+  flick.clips[0].mediaId = "media-1";
+  flick.clips[0].sourceUrl = "https://www.tiktok.com/@example/video/1";
+  flick.titleFont = "Impact";
+  flick.lineColor = "#ff3355";
+  flick.lineSize = 96;
+  flick.pictureWarmth = 18;
+  const saved = templateFromFlick(flick, "Styled ranking");
+  assert.equal(saved.titleFont, "Impact");
+  assert.equal(saved.lineColor, "#ff3355");
+  assert.equal(saved.lineSize, 96);
+  assert.equal(saved.pictureWarmth, 18);
+  assert.equal("musicId" in saved, false);
+  assert.equal("musicCredit" in saved, false);
+  assert.ok(saved.clips.every((clip) => clip.mediaId === null && clip.sourceUrl === undefined));
+  const again = flickFromTemplate(saved, "Again");
+  assert.equal(again.titleFont, "Impact");
+  assert.equal(again.lineColor, "#ff3355");
+  assert.equal(again.lineSize, 96);
+  assert.equal(again.pictureWarmth, 18);
+  assert.ok(again.clips.every((clip) => clip.mediaId === null && clip.sourceUrl === undefined));
+});
+
+test("pasted lines land one per slot from the selected one", () => {
+  assert.deepEqual(importedLines("  One \n\nTwo\r\nThree  "), ["One", "Two", "Three"]);
+  const ids = ["a", "b", "c"];
+  const assigned = assignLinesInOrder(ids, importedLines("Red\nBlue\nGreen"), "a");
+  assert.deepEqual([...assigned.entries()], [
+    ["a", "Red"],
+    ["b", "Blue"],
+    ["c", "Green"],
+  ]);
+  const fromSecond = assignLinesInOrder(ids, ["Only"], "b");
+  assert.equal(fromSecond.has("a"), false);
+  assert.equal(fromSecond.get("b"), "Only");
+});
+
 test("full frame and the seam edit the layout without touching cuts", () => {
   const flick = flickFromTemplate(builtinTemplates()[0], "Layout");
   const full = fullFrame(flick.regions, flick.regions[0].id);
@@ -172,6 +218,33 @@ test("dual video is half and half, with two clips, and the seam still moves", ()
   assert.equal(dragged.find((region) => region.id === top.id)?.height, 0.33);
   assert.equal(dragged.find((region) => region.id !== top.id && region.trackId === "track-game")?.y, 0.33);
   assert.equal(flick.clips.length, 2);
+});
+
+test("skip around plays outside in and leaves the rank numbers alone", () => {
+  const five = [
+    { id: "a", rank: 5 },
+    { id: "b", rank: 4 },
+    { id: "c", rank: 3 },
+    { id: "d", rank: 2 },
+    { id: "e", rank: 1 },
+  ];
+  assert.deepEqual(
+    playbackOrder(five, "skip").map((slot) => slot.rank),
+    [1, 5, 2, 4, 3],
+  );
+  const three = [
+    { id: "a", rank: 3 },
+    { id: "b", rank: 2 },
+    { id: "c", rank: 1 },
+  ];
+  assert.deepEqual(
+    playbackOrder(three, "skip").map((slot) => slot.rank),
+    [1, 3, 2],
+  );
+  assert.deepEqual(
+    playbackOrder(five, "countdown").map((slot) => slot.rank),
+    [5, 4, 3, 2, 1],
+  );
 });
 
 test("shuffle plays a mixed order and leaves the rank numbers alone", () => {

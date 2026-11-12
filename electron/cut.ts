@@ -16,6 +16,8 @@ export async function exportCut(input: {
   flick: Flick;
   media: MediaAsset[];
   outputPath: string;
+  voiceFile?: string;
+  videoBitrate?: string;
 }): Promise<void> {
   const trackId = visibleRegions(input.flick.regions)[0]?.trackId ?? input.flick.tracks[0]?.id;
   const clips = input.flick.clips
@@ -35,43 +37,66 @@ export async function exportCut(input: {
       const available = asset?.durationSec && asset.durationSec > 0 ? asset.durationSec : clip.outSec;
       const end = Math.min(clip.outSec, available);
       const start = Math.min(clip.inSec, Math.max(0, end - 0.05));
-      if (end - start <= 0.05) continue;
-      const copy =
+      const span = end - start;
+      if (span <= 0.05 || clipDuration(clip) <= 0) continue;
+      const canCopy =
         asset?.codec === "h264" && asset.width === input.flick.width && asset.height === input.flick.height;
-      const args = ["-y", "-ss", String(start), "-to", String(end), "-i", source, "-an"];
-      if (copy) {
-        args.push("-c", "copy", segment);
-      } else {
-        const { width, height } = input.flick;
-        args.push(
-          "-vf",
-          `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`,
-          "-pix_fmt",
-          "yuv420p",
-          "-c:v",
-          input.encoder,
-          ...(input.encoder === "libx264" ? ["-preset", "veryfast", "-crf", "20"] : ["-b:v", "8M"]),
-          segment,
-        );
+      let wrote = false;
+      if (canCopy) {
+        try {
+          await run(
+            input.ffmpeg,
+            ["-y", "-ss", String(start), "-i", source, "-t", String(span), "-an", "-c:v", "copy", "-avoid_negative_ts", "make_zero", segment],
+            120000,
+          );
+          wrote = ready(segment);
+        } catch {
+          wrote = false;
+        }
       }
-      await exec(input.ffmpeg, args, { timeout: 120000 });
-      if (clipDuration(clip) <= 0) continue;
+      if (!wrote) {
+        fs.rmSync(segment, { force: true });
+        const { width, height } = input.flick;
+        try {
+          await runVideo(
+            input.ffmpeg,
+            [
+              "-y",
+              "-ss",
+              String(start),
+              "-i",
+              source,
+              "-t",
+              String(span),
+              "-an",
+              "-vf",
+              `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`,
+              "-r",
+              String(input.flick.fps),
+              "-pix_fmt",
+              "yuv420p",
+            ],
+            segment,
+            input.encoder,
+            input.videoBitrate,
+            120000,
+          );
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : shortFfmpeg(error);
+          throw new Error(`Could not cut “${clip.label || "that clip"}”. ${reason}`);
+        }
+      }
       segments.push(segment);
     }
     if (!segments.length) throw new Error("Those clips have no duration.");
-    const list = path.join(tmp, "list.txt");
-    fs.writeFileSync(
-      list,
-      segments.map((file) => `file '${file.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"),
-    );
     const silent = path.join(tmp, "silent.mp4");
-    await exec(input.ffmpeg, ["-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", silent], {
-      timeout: 120000,
-    });
+    await joinSegments(input.ffmpeg, segments, silent, input.flick, input.encoder, input.videoBitrate);
     fs.mkdirSync(path.dirname(input.outputPath), { recursive: true });
-    const voice = input.flick.voiceRelative
-      ? path.join(input.channelDir, "flicks", input.flick.id, input.flick.voiceRelative)
-      : "";
+    const voice =
+      input.voiceFile ??
+      (input.flick.voiceRelative
+        ? path.join(input.channelDir, "flicks", input.flick.id, input.flick.voiceRelative)
+        : "");
     const voiceReady = Boolean(voice && fs.existsSync(voice));
     const musicAsset = input.media.find((item) => item.id === input.flick.musicId);
     const music = input.flick.musicId ? resolveAsset(input.channelDir, musicAsset) : null;
@@ -84,33 +109,164 @@ export async function exportCut(input: {
     if (credit && textFile) fs.writeFileSync(textFile, credit, "utf8");
     const drawtext = credit && font && textFile ? creditDrawtext(font, textFile) : null;
     const filter = cutAudioFilter({ hasVoice: voiceReady, hasMusic: musicReady, drawtext });
-    if (!musicReady && voiceReady) {
-      await exec(
-        input.ffmpeg,
-        ["-y", "-i", silent, "-i", voice, "-c:v", "copy", "-c:a", "aac", "-shortest", input.outputPath],
-        { timeout: 120000 },
-      );
+    if (!musicReady && voiceReady && voice) {
+      await muxVoice(input.ffmpeg, silent, voice, input.outputPath, input.encoder, input.videoBitrate);
     } else if (musicReady && filter && music) {
-      const args = ["-y", "-i", silent, "-stream_loop", "-1", "-i", music];
-      if (voiceReady) args.push("-i", voice);
-      args.push("-filter_complex", filter);
-      if (drawtext) {
-        args.push("-map", "[v]", "-map", "[a]", "-pix_fmt", "yuv420p", "-c:v", input.encoder, ...videoEncodeArgs(input.encoder));
-      } else {
-        args.push("-map", "0:v", "-map", "[a]", "-c:v", "copy");
-      }
-      args.push("-c:a", "aac", "-shortest", input.outputPath);
-      await exec(input.ffmpeg, args, { timeout: 120000 });
+      await muxMusic(input.ffmpeg, silent, music, voiceReady ? voice : "", filter, Boolean(drawtext), input.outputPath, input.encoder, input.videoBitrate);
     } else {
       fs.copyFileSync(silent, input.outputPath);
     }
+    if (!ready(input.outputPath)) throw new Error("Export cut did not write a video.");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
-function videoEncodeArgs(encoder: string): string[] {
-  return encoder === "libx264" ? ["-preset", "veryfast", "-crf", "20"] : ["-b:v", "8M"];
+function bitrateOf(videoBitrate: string | undefined): string {
+  return videoBitrate?.trim() || "8M";
+}
+
+function videoEncodeArgs(encoder: string, videoBitrate?: string): string[] {
+  return encoder === "libx264" ? ["-preset", "veryfast", "-crf", "20"] : ["-b:v", bitrateOf(videoBitrate)];
+}
+
+async function run(ffmpeg: string, args: string[], timeout: number): Promise<void> {
+  await exec(ffmpeg, args, { timeout, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
+}
+
+function ready(file: string): boolean {
+  return fs.existsSync(file) && fs.statSync(file).size > 500;
+}
+
+function shortFfmpeg(error: unknown): string {
+  const failed = error as { stderr?: string; message?: string };
+  const lines = `${failed.stderr ?? ""}\n${failed.message ?? ""}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("frame=") && !line.startsWith("Command failed"));
+  const useful = [...lines].reverse().find((line) => /error|invalid|fail|cannot|could not|no such|unknown/i.test(line));
+  const text = useful ?? "ffmpeg could not write that video.";
+  return text.length > 180 ? `${text.slice(0, 177)}…` : text;
+}
+
+async function runVideo(
+  ffmpeg: string,
+  args: string[],
+  output: string,
+  encoder: string,
+  videoBitrate: string | undefined,
+  timeout: number,
+): Promise<void> {
+  const encoders = encoder === "libx264" ? ["libx264"] : [encoder, "libx264"];
+  let last = "ffmpeg could not write that video.";
+  for (const name of encoders) {
+    fs.rmSync(output, { force: true });
+    try {
+      await run(ffmpeg, [...args, "-c:v", name, ...videoEncodeArgs(name, videoBitrate), output], timeout);
+      if (ready(output)) return;
+      last = "The video file was empty.";
+    } catch (error) {
+      last = shortFfmpeg(error);
+    }
+  }
+  throw new Error(last);
+}
+
+async function joinSegments(
+  ffmpeg: string,
+  segments: string[],
+  silent: string,
+  flick: Flick,
+  encoder: string,
+  videoBitrate: string | undefined,
+): Promise<void> {
+  const list = path.join(path.dirname(silent), "list.txt");
+  fs.writeFileSync(
+    list,
+    segments.map((file) => `file '${file.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"),
+  );
+  try {
+    await run(ffmpeg, ["-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", silent], 120000);
+    if (ready(silent)) return;
+  } catch {
+    // Copied pieces did not share a codec. The filter join encodes them.
+  }
+  fs.rmSync(silent, { force: true });
+  const rate = Number.isFinite(flick.fps) && flick.fps > 0 ? flick.fps : 30;
+  const parts: string[] = [];
+  const labels: string[] = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    parts.push(
+      `[${index}:v]scale=${flick.width}:${flick.height}:force_original_aspect_ratio=increase,crop=${flick.width}:${flick.height},setsar=1,fps=${rate}[v${index}]`,
+    );
+    labels.push(`[v${index}]`);
+  }
+  parts.push(`${labels.join("")}concat=n=${segments.length}:v=1:a=0[v]`);
+  const args = ["-y"];
+  for (const file of segments) args.push("-i", file);
+  args.push("-filter_complex", parts.join(";"), "-map", "[v]", "-an", "-pix_fmt", "yuv420p");
+  try {
+    await runVideo(ffmpeg, args, silent, encoder, videoBitrate, 120000);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : shortFfmpeg(error);
+    throw new Error(`Could not join those clips. ${reason}`);
+  }
+}
+
+async function muxVoice(
+  ffmpeg: string,
+  silent: string,
+  voice: string,
+  output: string,
+  encoder: string,
+  videoBitrate: string | undefined,
+): Promise<void> {
+  try {
+    await run(ffmpeg, ["-y", "-i", silent, "-i", voice, "-c:v", "copy", "-c:a", "aac", "-shortest", output], 120000);
+    if (ready(output)) return;
+  } catch {
+    fs.rmSync(output, { force: true });
+  }
+  await runVideo(
+    ffmpeg,
+    ["-y", "-i", silent, "-i", voice, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"],
+    output,
+    encoder,
+    videoBitrate,
+    120000,
+  );
+}
+
+async function muxMusic(
+  ffmpeg: string,
+  silent: string,
+  music: string,
+  voice: string,
+  filter: string,
+  drawtext: boolean,
+  output: string,
+  encoder: string,
+  videoBitrate: string | undefined,
+): Promise<void> {
+  const args = ["-y", "-i", silent, "-stream_loop", "-1", "-i", music];
+  if (voice) args.push("-i", voice);
+  args.push("-filter_complex", filter);
+  if (!drawtext) {
+    try {
+      await run(ffmpeg, [...args, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-shortest", output], 120000);
+      if (ready(output)) return;
+    } catch {
+      fs.rmSync(output, { force: true });
+    }
+  }
+  await runVideo(
+    ffmpeg,
+    [...args, "-map", drawtext ? "[v]" : "0:v", "-map", "[a]", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"],
+    output,
+    encoder,
+    videoBitrate,
+    120000,
+  );
 }
 
 export function findCreditFont(): string | null {

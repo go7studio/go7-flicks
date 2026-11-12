@@ -1,4 +1,3 @@
-import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,6 +11,7 @@ export async function renderFlick(input: {
   outputPath: string;
   props: FlickProps;
   logLevel?: "info" | "verbose";
+  videoBitrate?: string;
 }): Promise<void> {
   const serveUrl = await ensureBundle(input.entry, input.resourcesPath);
   const composition = await selectComposition({
@@ -27,7 +27,7 @@ export async function renderFlick(input: {
     outputLocation: input.outputPath,
     inputProps: input.props,
     hardwareAcceleration: "if-possible",
-    videoBitrate: "8M",
+    videoBitrate: input.videoBitrate?.trim() || "8M",
     crf: null,
     overwrite: true,
     logLevel: input.logLevel ?? "info",
@@ -37,9 +37,11 @@ export async function renderFlick(input: {
 async function ensureBundle(entry: string, resourcesPath: string): Promise<string> {
   const packed = path.join(resourcesPath, "remotion-bundle");
   if (fs.existsSync(path.join(packed, "index.html"))) return packed;
-  devBundle ??= bundle({
-    entryPoint: entry,
-    webpackOverride: (config) => config,
-  });
+  devBundle ??= import("@remotion/bundler").then(({ bundle }) =>
+    bundle({
+      entryPoint: entry,
+      webpackOverride: (config) => config,
+    }),
+  );
   return devBundle;
 }

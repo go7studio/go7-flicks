@@ -1,108 +1,44 @@
 import { useEffect, useState } from "react";
 import type { RecentChannel } from "../shared/model";
+import { whenPhrase } from "../shared/when";
+import { StartShell } from "./StartShell";
+import "./polish-nav.css";
 
-type Mode = "quick" | "full" | "ai";
 type Nav = "home" | "library";
+
+type StartMode = "quick" | "full" | "ai";
 
 type Tool = {
   title: string;
-  copy: string;
   action: string;
-  mode: Mode;
   art: string;
-  templateId?: string;
-  flickName?: string;
-  connections?: boolean;
-  note?: string;
-  studio?: "ranking" | "split";
+  studio: "ranking" | "split";
 };
 
-const CARDS: Tool[] = [
+const STARTS: Tool[] = [
   {
     title: "Video Ranking",
-    copy: "Rank your videos to find the best performers.",
-    action: "Start Ranking",
-    mode: "quick",
+    action: "Start ranking",
     art: "rank",
     studio: "ranking",
   },
   {
-    title: "Split Screen",
-    copy: "Face on one half, gameplay on the other.",
-    action: "Open Split Screen",
-    mode: "quick",
+    title: "Split",
+    action: "Start split",
     art: "split",
     studio: "split",
-  },
-  {
-    title: "Simple Editor",
-    copy: "One frame, a magnetic timeline, and the cuts you make by hand.",
-    action: "Open Editor",
-    mode: "full",
-    art: "edit",
-    templateId: "builtin-blank",
-    flickName: "Edit",
-  },
-  {
-    title: "Generate AI Voiceover",
-    copy: "Use the ElevenLabs or MiniMax key already on this computer.",
-    action: "Create Voiceover",
-    mode: "ai",
-    art: "voice",
-    connections: true,
-  },
-];
-
-const LATER: Tool[] = [
-  {
-    title: "Auto Clipping",
-    copy: "Drop a long clip on the canvas and cut the moments you want to keep.",
-    action: "Clip It Now",
-    mode: "quick",
-    art: "clip",
-    note: "The in-and-out scan is not in this build. Rank a clip that is already on this computer.",
-  },
-  {
-    title: "Video Commentary",
-    copy: "Convert a script into a split screen with a line and a voice.",
-    action: "Create Video Commentary",
-    mode: "quick",
-    art: "talk",
-    note: "A commentary desk is not in this build. Open Split Screen, then write the line on the canvas.",
-  },
-  {
-    title: "Text Story",
-    copy: "Start from a blank frame and write the line over the picture.",
-    action: "Create Text Story",
-    mode: "quick",
-    art: "story",
-    note: "A text-story desk is not in this build. Write the line on the canvas.",
-  },
-  {
-    title: "Video Transcriber",
-    copy: "Word-by-word captions are not in this build yet.",
-    action: "Coming later",
-    mode: "full",
-    art: "script",
-    note: "Captions stay out of this build. Write the line in the editor instead.",
-  },
-  {
-    title: "Generate Image",
-    copy: "Still-image generation is not in this build yet.",
-    action: "Coming later",
-    mode: "ai",
-    art: "image",
-    note: "Bring your own clips. This build edits the footage on this computer.",
   },
 ];
 
 export function HomeScreen({
+  openOn = "home",
   onOpen,
   onOpenFlick,
   onRanking,
   onSplit,
   onConnections,
 }: {
+  openOn?: Nav;
   onOpen: (dir: string) => void;
   onOpenFlick: (dir: string, flickId: string) => void;
   onRanking: () => void;
@@ -113,58 +49,50 @@ export function HomeScreen({
   const [recent, setRecent] = useState<RecentChannel[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<Mode>("quick");
-  const [nav, setNav] = useState<Nav>("home");
+  const [nav, setNav] = useState<Nav>(openOn);
+  const [mode, setMode] = useState<StartMode>("quick");
+  const [staging, setStaging] = useState("");
+  const [confirmClean, setConfirmClean] = useState(false);
+
+  useEffect(() => {
+    setNav(openOn);
+  }, [openOn]);
 
   useEffect(() => {
     void window.flicks?.recent().then(setRecent);
+    void window.flicks?.staging().then((result) => setStaging(result.stagingDir));
   }, []);
 
-  async function ensureChannel(): Promise<string | null> {
-    const existing = recent[0]?.path;
-    if (existing) return existing;
-    const parent = await window.flicks!.pickDirectory();
-    if (!parent) return null;
-    const result = await window.flicks!.createChannel(parent, name.trim() || "My channel");
-    if (!result.ok || !result.dir) {
-      setMessage(result.message ?? "Could not create that channel.");
-      return null;
+  useEffect(() => {
+    if (!confirmClean) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setConfirmClean(false);
     }
-    return result.dir;
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmClean]);
+
+  async function changeStaging() {
+    const result = await window.flicks!.chooseStaging();
+    if (result.stagingDir) setStaging(result.stagingDir);
+    if (result.message && result.message !== "No folder chosen.") setMessage(result.message);
   }
 
-  async function start(tool: Tool) {
-    if (tool.studio === "ranking") {
-      onRanking();
-      return;
-    }
-    if (tool.studio === "split") {
-      onSplit();
-      return;
-    }
-    if (tool.connections) {
-      onConnections();
-      return;
-    }
-    if (tool.note) {
-      setMessage(tool.note);
-      return;
-    }
-    if (!tool.templateId || !tool.flickName) return;
+  async function cleanUnused() {
     setBusy(true);
     setMessage("");
     try {
-      const dir = await ensureChannel();
-      if (!dir) return;
-      const flick = await window.flicks!.createFlick(dir, tool.flickName, tool.templateId);
-      if (!flick.ok || !flick.flick) {
-        setMessage(flick.message ?? "Could not open that canvas.");
-        return;
-      }
-      onOpenFlick(dir, flick.flick.id);
+      const result = await window.flicks!.cleanUnused();
+      setMessage(result.message);
     } finally {
       setBusy(false);
+      setConfirmClean(false);
     }
+  }
+
+  function start(tool: Tool) {
+    if (tool.studio === "ranking") onRanking();
+    else onSplit();
   }
 
   async function createChannel() {
@@ -195,147 +123,143 @@ export function HomeScreen({
     onOpen(result.dir);
   }
 
-  const visible = CARDS.filter((tool) => tool.mode === mode);
-
   return (
-    <div className="shell">
-      <aside className="side">
-        <div className="side-brand">
-          <span className="mark">G7</span>
-          <strong>Go7Flicks</strong>
-        </div>
-        <nav className="side-nav">
-          <button className={nav === "home" ? "on" : ""} onClick={() => setNav("home")}>
-            <HomeIcon />
-            Home
-          </button>
-          <button className={nav === "library" ? "on" : ""} onClick={() => setNav("library")}>
-            <LibraryIcon />
-            Library
-          </button>
-          <button onClick={onConnections}>
-            <ConnectionsIcon />
-            Connections
-          </button>
-        </nav>
-        <div className="side-later">
-          <p className="side-label">Later</p>
-          <nav className="side-tools">
-            {LATER.map((tool) => (
-              <button key={tool.title} disabled={busy} onClick={() => void start(tool)}>
-                <LaterIcon title={tool.title} />
-                {tool.title}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </aside>
-      <section className="dash">
-        {message ? <p className="banner">{message}</p> : null}
-        {nav === "library" ? (
-          <div className="library">
+    <StartShell nav={nav} onHome={() => setNav("home")} onLibrary={() => setNav("library")} onConnections={onConnections}>
+      {message ? <p className="banner start-note">{message}</p> : null}
+      {nav === "library" ? (
+        <div className="lib-page">
+          <div className="lib-head">
             <h1>Library</h1>
-            <div className="library-create">
+            <div className="lib-create">
               <input
                 className="field"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Channel name"
+                aria-label="Channel name"
               />
-              <button className="btn-primary" disabled={busy} onClick={() => void createChannel()}>
+              <button className="btn-primary" type="button" disabled={busy} onClick={() => void createChannel()}>
                 New channel
               </button>
-              <button className="btn" onClick={() => void openChannel()}>
+              <button className="btn-ghost" type="button" onClick={() => void openChannel()}>
                 Open folder
               </button>
             </div>
-            <div className="cards">
-              {recent.map((item) => (
-                <button key={item.path} className="card" onClick={() => onOpen(item.path)}>
-                  <strong>{item.name}</strong>
-                  <span className="muted tiny">{item.path}</span>
+          </div>
+          <div className="lib-cards">
+            {recent.map((item) => {
+              const clipped = item.clippedAt ? whenPhrase("Clipped", item.clippedAt) : null;
+              const made = item.madeAt ? whenPhrase("Made", item.madeAt) : null;
+              return (
+                <button key={item.path} className="lib-card" type="button" onClick={() => onOpen(item.path)}>
+                  <span className="lib-card-copy">
+                    <strong>{channelTitle(item)}</strong>
+                    {made ? <span className="lib-when">{made}</span> : null}
+                    {clipped ? <span className="lib-when">{clipped}</span> : null}
+                  </span>
+                  <span className="lib-open">Open</span>
                 </button>
-              ))}
-              {!recent.length ? <p className="muted">No channels on this computer yet.</p> : null}
+              );
+            })}
+          </div>
+          {!recent.length ? <p className="muted lib-empty">No channels yet.</p> : null}
+          <section className="lib-copies">
+            <div>
+              <h2>Working copies</h2>
+              <p className="lib-path">{staging || "This computer"}</p>
+            </div>
+            <div className="lib-copy-actions">
+              <button className="btn" type="button" onClick={() => void changeStaging()}>
+                Change folder
+              </button>
+              <button className="start-danger" type="button" disabled={busy} onClick={() => setConfirmClean(true)}>
+                Clean unused
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : (
+        <div className="start-home">
+          <h1 className="start-hello">Hello, what would you like to create today?</h1>
+          <div className="row start-modes" role="group" aria-label="Start mode">
+            {(["quick", "full", "ai"] as const).map((pill) => (
+              <button
+                key={pill}
+                type="button"
+                className={mode === pill ? "btn-primary" : "btn"}
+                aria-pressed={mode === pill}
+                onClick={() => setMode(pill)}
+              >
+                {pill === "quick" ? "Quick" : pill === "full" ? "Full" : "AI"}
+              </button>
+            ))}
+          </div>
+          <ModeHint mode={mode} />
+          <div className="start-pair">
+            {STARTS.map((tool) => (
+              <button key={tool.title} className="start-primary" type="button" disabled={busy} onClick={() => start(tool)}>
+                <span className={`art art-${tool.art}`} aria-hidden="true">
+                  <CardArt art={tool.art} />
+                </span>
+                <strong>{tool.title}</strong>
+                <span className="start-cta">{tool.action}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {confirmClean ? (
+        <div className="modal-back" role="dialog" aria-modal="true" aria-labelledby="clean-title">
+          <div className="modal panel stack">
+            <h2 id="clean-title">Clean unused?</h2>
+            <div className="clean-cols">
+              <div className="clean-drops">
+                <p>Deletes</p>
+                <ul>
+                  <li>Unused working copies</li>
+                  <li>Unfinished exports</li>
+                  <li>Numbered extras</li>
+                </ul>
+              </div>
+              <div className="clean-keeps">
+                <p>Does not delete</p>
+                <ul>
+                  <li>A named export</li>
+                  <li>A clip on a timeline</li>
+                  <li>A folder on a network drive</li>
+                </ul>
+              </div>
+            </div>
+            <div className="actions">
+              <button className="btn" type="button" onClick={() => setConfirmClean(false)} autoFocus>
+                Cancel
+              </button>
+              <button className="start-danger start-danger-fill" type="button" disabled={busy} onClick={() => void cleanUnused()}>
+                Clean unused
+              </button>
             </div>
           </div>
-        ) : (
-          <div className="home-main">
-            <h1 className="hello">Hello, what would you like to create today?</h1>
-            <div className="modes" role="tablist">
-              <button className={mode === "quick" ? "on" : ""} onClick={() => setMode("quick")}>
-                Quick Editor
-              </button>
-              <button className={mode === "full" ? "on" : ""} onClick={() => setMode("full")}>
-                Full Editor
-              </button>
-              <button className={mode === "ai" ? "on" : ""} onClick={() => setMode("ai")}>
-                AI Videos
-              </button>
-            </div>
-            <div className={visible.length === 1 ? "tool-grid single" : "tool-grid"}>
-              {visible.map((tool) => (
-                <article key={tool.title} className="tool-card">
-                  <div className={`art art-${tool.art}`} aria-hidden="true">
-                    <CardArt art={tool.art} />
-                    {tool.art === "rank" || tool.art === "split" ? (
-                      <span className={`art-badge badge-${tool.art}`}>
-                        <BadgeIcon art={tool.art} />
-                      </span>
-                    ) : null}
-                  </div>
-                  <h2>{tool.title}</h2>
-                  <p>{tool.copy}</p>
-                  <button className={`tool-go go-${tool.art}`} disabled={busy} onClick={() => void start(tool)}>
-                    {tool.action}
-                  </button>
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
-      </section>
-    </div>
+        </div>
+      ) : null}
+    </StartShell>
   );
 }
 
-function BadgeIcon({ art }: { art: string }) {
-  if (art === "rank") {
-    return (
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <path d="M8 4h8v6a4 4 0 0 1-8 0z" fill="none" stroke="currentColor" strokeWidth="1.7" />
-        <path d="M8 7H5.5A3.5 3.5 0 0 0 9 12M16 7h2.5A3.5 3.5 0 0 1 15 12M12 14v2M9 20h6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (art === "split") {
-    return (
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <rect x="7" y="3" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
-        <rect x="7" y="14" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
-      </svg>
-    );
-  }
-  if (art === "voice") return <VoiceIcon />;
-  return <EditIcon />;
+function ModeHint({ mode }: { mode: StartMode }) {
+  const line =
+    mode === "quick"
+      ? "Quick starts: rank clips or split face and gameplay."
+      : mode === "full"
+        ? "Full is the same two starts. More tools stay inside a channel."
+        : "AI helps on the canvas after you open a flick. Connections holds your keys.";
+  return <p className="muted tiny">{line}</p>;
 }
 
-function LaterIcon({ title }: { title: string }) {
-  const d =
-    title === "Auto Clipping"
-      ? "M8 7l8 5-8 5z"
-      : title === "Video Commentary"
-        ? "M5 6h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3z"
-        : title === "Text Story"
-          ? "M7 5h10v14H7zM9 9h6M9 13h6"
-          : title === "Video Transcriber"
-            ? "M6 6h12v12H6zM9 10h6M9 14h4"
-            : "M6 6h12v12H6z";
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
+function channelTitle(item: RecentChannel): string {
+  const name = item.name.trim();
+  if (name && !/[\\/]/.test(name)) return name;
+  const base = item.path.split(/[/\\]/).filter(Boolean).pop();
+  return base || "Channel";
 }
 
 function CardArt({ art }: { art: string }) {
@@ -348,58 +272,10 @@ function CardArt({ art }: { art: string }) {
       </div>
     );
   }
-  if (art === "split") {
-    return (
-      <div className="mini-phone mini-split">
-        <span>Face</span>
-        <span>Gameplay</span>
-      </div>
-    );
-  }
-  if (art === "voice") return <VoiceIcon />;
-  return <EditIcon />;
-}
-
-function HomeIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function LibraryIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <path d="M4 7h5l2 2h9v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ConnectionsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <circle cx="7" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="17" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M10 12h4" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
-      <rect x="14" y="16" width="36" height="26" rx="3" fill="none" stroke="currentColor" strokeWidth="2.4" />
-      <path d="M14 46h36M24 52h16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function VoiceIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
-      <path d="M32 14a8 8 0 0 1 8 8v10a8 8 0 0 1-16 0V22a8 8 0 0 1 8-8z" fill="none" stroke="currentColor" strokeWidth="2.4" />
-      <path d="M20 32a12 12 0 0 0 24 0M32 44v8M24 52h16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-    </svg>
+    <div className="mini-phone mini-split">
+      <span>Face</span>
+      <span>Gameplay</span>
+    </div>
   );
 }

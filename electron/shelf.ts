@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { uid, type ShelfEntry, type ShelfKind } from "../src/shared/model";
+import { mediaMadeAt } from "./made";
 
 export type { ShelfEntry };
 
@@ -53,9 +54,13 @@ export function rememberShelf(
 }
 
 export function listShelf(root: string): ShelfEntry[] {
-  return readItems(root)
-    .filter((item) => fileFor(root, item))
-    .map(publish);
+  return readItems(root).flatMap((item) => {
+    const file = fileFor(root, item);
+    if (!file) return [];
+    const madeAt = mediaMadeAt(item.name, file);
+    const entry = publish(item);
+    return [madeAt ? { ...entry, madeAt } : entry];
+  });
 }
 
 export function shelfSource(root: string, id: string): { file: string; item: ShelfEntry } | null {

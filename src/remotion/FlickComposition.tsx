@@ -1,5 +1,5 @@
 import { AbsoluteFill, Audio, OffthreadVideo, Sequence, Video, useCurrentFrame, useVideoConfig } from "remotion";
-import { visibleRegions } from "../shared/canvas";
+import { lineColorOf, lineSizeOf, spokenLine, titleFontFamily, visibleRegions, warmthWash } from "../shared/canvas";
 import { VOICE_VOLUME, clipAudible, musicVolume } from "../shared/mix";
 import { type Region, type Track, clipDuration } from "../shared/model";
 
@@ -12,6 +12,7 @@ export type RenderClip = {
   label: string;
   line?: string;
   src?: string;
+  focus?: number;
 };
 
 export type FlickProps = {
@@ -31,6 +32,10 @@ export type FlickProps = {
   accentWords?: string;
   titleStroke?: number;
   showRank?: boolean;
+  titleFont?: string;
+  lineColor?: string;
+  lineSize?: number;
+  pictureWarmth?: number;
 };
 
 export const emptyFlickProps: FlickProps = {
@@ -52,12 +57,15 @@ export const FlickComposition = (props: FlickProps) => {
   const active = regions
     .map((region) => props.clips.find((clip) => clip.trackId === region.trackId && inside(clip, time)))
     .find(Boolean);
-  const caption = props.headline ? active?.line || "" : active?.line || active?.label || "";
+  const caption = spokenLine(active?.line);
   const rank = props.showRank === false ? "" : rankNumber(active?.label);
   const Picture = props.preview ? Video : OffthreadVideo;
+  const wash = warmthWash(props.pictureWarmth);
+  const lineColor = lineColorOf(props.lineColor);
+  const lineSize = lineSizeOf(props.lineSize);
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#050505", fontFamily: "Avenir Next, Segoe UI, sans-serif" }}>
+    <AbsoluteFill style={{ backgroundColor: "#050505", fontFamily: titleFontFamily(props.titleFont) }}>
       {props.regions.map((region) => {
         if (region.hidden || region.height <= 0.01) return null;
         const track = props.tracks.find((item) => item.id === region.trackId);
@@ -75,6 +83,18 @@ export const FlickComposition = (props: FlickProps) => {
               background: "#14140f",
             }}
           >
+            <AbsoluteFill
+              style={{
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#f8f1e3",
+                fontSize: 48,
+                fontWeight: 750,
+                letterSpacing: -0.4,
+              }}
+            >
+              No picture
+            </AbsoluteFill>
             {props.clips
               .filter((clip) => clip.trackId === region.trackId)
               .map((clip) => {
@@ -87,24 +107,28 @@ export const FlickComposition = (props: FlickProps) => {
                         src={clip.src}
                         startFrom={Math.max(0, Math.round(clip.inSec * fps))}
                         muted={mute}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      />
-                    ) : (
-                      <AbsoluteFill
                         style={{
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: "#6f6a5c",
-                          fontSize: 42,
-                          fontWeight: 700,
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          objectPosition: `${((clip.focus ?? 0.5) * 100).toFixed(1)}% center`,
                         }}
-                      >
-                        {clip.label}
-                      </AbsoluteFill>
-                    )}
+                      />
+                    ) : null}
                   </Sequence>
                 );
               })}
+            {wash ? (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: wash,
+                  mixBlendMode: "soft-light",
+                  pointerEvents: "none",
+                }}
+              />
+            ) : null}
           </div>
         );
       })}
@@ -112,16 +136,18 @@ export const FlickComposition = (props: FlickProps) => {
         <div
           style={{
             position: "absolute",
-            left: 36,
-            right: 36,
-            top: 72,
+            left: 48,
+            right: 48,
+            top: 64,
             textAlign: "center",
-            color: "#fff",
-            fontSize: 78,
-            fontWeight: 900,
-            lineHeight: 0.95,
-            letterSpacing: -1,
-            textShadow: "0 6px 0 #000",
+            color: "#fffdf8",
+            fontSize: 64,
+            fontWeight: 800,
+            lineHeight: 1.05,
+            letterSpacing: -0.5,
+            background: "rgba(28, 25, 21, 0.72)",
+            borderRadius: 18,
+            padding: "14px 16px",
           }}
         >
           {paintWords(props.headline, props.headlineColor || props.accent, props.accentWords || "")}
@@ -131,15 +157,17 @@ export const FlickComposition = (props: FlickProps) => {
         <div
           style={{
             position: "absolute",
-            left: 36,
-            right: 36,
-            top: 430,
+            left: 48,
+            right: 48,
+            top: 420,
             textAlign: "center",
-            color: "#fff",
-            fontSize: 160,
-            fontWeight: 900,
-            WebkitTextStroke: "10px #000",
+            color: "#e2b340",
+            fontSize: 140,
+            fontWeight: 800,
+            WebkitTextStroke: "12px #1c1915",
             paintOrder: "stroke fill",
+            background: "rgba(28, 25, 21, 0.35)",
+            borderRadius: 24,
           }}
         >
           {rank}
@@ -151,14 +179,17 @@ export const FlickComposition = (props: FlickProps) => {
             position: "absolute",
             left: 48,
             right: 48,
-            top: props.headline ? 620 : "46%",
+            top: props.headline ? 640 : "46%",
             textAlign: "center",
-            color: "#fff",
-            fontSize: props.headline ? 72 : 64,
+            color: lineColor,
+            fontSize: lineSize,
             fontWeight: 800,
-            letterSpacing: 0.5,
-            textShadow: "0 4px 16px rgba(0,0,0,0.8)",
-            WebkitTextStroke: props.headline ? `${props.titleStroke ?? 6}px #000` : undefined,
+            letterSpacing: 0.2,
+            lineHeight: 1.15,
+            background: "rgba(28, 25, 21, 0.78)",
+            borderRadius: 16,
+            padding: "12px 16px",
+            WebkitTextStroke: props.headline ? `${Math.min(props.titleStroke ?? 6, 8)}px #1c1915` : undefined,
             paintOrder: "stroke fill",
           }}
         >

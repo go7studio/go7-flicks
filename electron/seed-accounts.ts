@@ -84,5 +84,17 @@ export function seedMachineAccounts(): string[] {
     remember("codex", "", { auth: "cli", model: "gpt-5.6-terra" });
     added.push("codex");
   }
+  if (!rows.some((row) => row.kind === "grok")) {
+    const xai = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
+    if (xai) {
+      remember("grok", xai);
+      added.push("grok");
+    }
+  }
+  const cursorCmd = path.join(process.env.LOCALAPPDATA ?? "", "cursor-agent", "cursor-agent.cmd");
+  if (process.env.LOCALAPPDATA && fs.existsSync(cursorCmd) && !rows.some((row) => row.kind === "cursor")) {
+    remember("cursor", "", { auth: "cli" });
+    added.push("cursor");
+  }
   return added;
 }

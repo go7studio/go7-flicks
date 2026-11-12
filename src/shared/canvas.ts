@@ -11,7 +11,7 @@ import {
   uid,
 } from "./model";
 
-export type PlaybackMode = "countdown" | "listed" | "shuffle";
+export type PlaybackMode = "countdown" | "listed" | "shuffle" | "skip";
 
 export const DUAL_FACE = "track-face";
 export const DUAL_GAME = "track-game";
@@ -25,6 +25,7 @@ export function playbackOrder<T extends { id: string; rank: number }>(
   shuffleIds: string[] = [],
 ): T[] {
   if (mode === "countdown") return [...slots].sort((a, b) => b.rank - a.rank);
+  if (mode === "skip") return skipAround(slots);
   if (mode === "shuffle") {
     const byId = new Map(slots.map((slot) => [slot.id, slot]));
     const ordered = shuffleIds.map((id) => byId.get(id)).filter((slot): slot is T => Boolean(slot));
@@ -32,6 +33,23 @@ export function playbackOrder<T extends { id: string; rank: number }>(
     return [...ordered, ...slots.filter((slot) => !seen.has(slot.id))];
   }
   return [...slots];
+}
+
+/** Outside-in by rank number. Five ranks play 1, 5, 2, 4, 3. Three play 1, 3, 2. */
+export function skipAround<T extends { rank: number }>(slots: T[]): T[] {
+  const byRank = [...slots].sort((a, b) => a.rank - b.rank);
+  const next: T[] = [];
+  let left = 0;
+  let right = byRank.length - 1;
+  while (left <= right) {
+    next.push(byRank[left]);
+    left += 1;
+    if (left <= right) {
+      next.push(byRank[right]);
+      right -= 1;
+    }
+  }
+  return next;
 }
 
 export function shuffleIds(ids: string[]): string[] {
@@ -121,6 +139,84 @@ export function builtinTemplates(): Template[] {
   ];
 }
 
+export const TITLE_FONTS = ["Segoe UI", "Arial", "Georgia", "Impact"] as const;
+
+export const LINE_SIZE_MIN = 48;
+export const LINE_SIZE_MAX = 120;
+export const LINE_SIZE_DEFAULT = 72;
+export const WARMTH_MIN = -40;
+export const WARMTH_MAX = 40;
+
+export function titleFontOf(value: string | undefined): (typeof TITLE_FONTS)[number] {
+  return (TITLE_FONTS as readonly string[]).includes(value ?? "") ? (value as (typeof TITLE_FONTS)[number]) : "Segoe UI";
+}
+
+export function storedTitleFont(value: string | undefined): string | undefined {
+  return (TITLE_FONTS as readonly string[]).includes(value ?? "") ? value : undefined;
+}
+
+export function titleFontFamily(value: string | undefined): string {
+  const face = titleFontOf(value);
+  return `"${face}", ${face === "Georgia" ? "serif" : "sans-serif"}`;
+}
+
+export function lineSizeOf(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return LINE_SIZE_DEFAULT;
+  return Math.min(LINE_SIZE_MAX, Math.max(LINE_SIZE_MIN, Math.round(value)));
+}
+
+export function storedLineSize(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return lineSizeOf(value);
+}
+
+export function lineColorOf(value: string | undefined): string {
+  return /^#[0-9a-fA-F]{6}$/.test(value?.trim() ?? "") ? (value as string).trim() : "#ffffff";
+}
+
+export function storedLineColor(value: string | undefined): string | undefined {
+  const trimmed = value?.trim() ?? "";
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : undefined;
+}
+
+export function warmthOf(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.min(WARMTH_MAX, Math.max(WARMTH_MIN, Math.round(value)));
+}
+
+export function storedWarmth(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const next = warmthOf(value);
+  return next === 0 ? undefined : next;
+}
+
+/** A soft wash over the picture. Cool is blue. Warm is orange. Zero leaves the picture alone. */
+export function warmthWash(value: number | undefined): string | null {
+  const amount = warmthOf(value);
+  if (!amount) return null;
+  const alpha = Math.abs(amount) / 80;
+  const rgb = amount > 0 ? "255, 148, 46" : "64, 140, 255";
+  return `rgba(${rgb}, ${alpha.toFixed(3)})`;
+}
+
+export function importedLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** One pasted line per id, starting at startId and moving forward. */
+export function assignLinesInOrder(ids: string[], lines: string[], startId: string): Map<string, string> {
+  const start = ids.indexOf(startId);
+  const from = start < 0 ? 0 : start;
+  const assigned = new Map<string, string>();
+  ids.slice(from).forEach((id, index) => {
+    if (index < lines.length) assigned.set(id, lines[index]);
+  });
+  return assigned;
+}
+
 export function flickFromTemplate(template: Template, name: string): Flick {
   return {
     id: uid(),
@@ -143,6 +239,10 @@ export function flickFromTemplate(template: Template, name: string): Flick {
     accentWords: template.accentWords,
     titleStroke: template.titleStroke,
     showRank: template.showRank,
+    titleFont: template.titleFont,
+    lineColor: template.lineColor,
+    lineSize: template.lineSize,
+    pictureWarmth: template.pictureWarmth,
   };
 }
 
@@ -176,6 +276,10 @@ export function templateFromFlick(flick: Flick, name: string, id = uid()): Templ
     accentWords: flick.accentWords?.trim() || undefined,
     titleStroke: flick.titleStroke,
     showRank: flick.showRank,
+    titleFont: storedTitleFont(flick.titleFont),
+    lineColor: storedLineColor(flick.lineColor),
+    lineSize: storedLineSize(flick.lineSize),
+    pictureWarmth: storedWarmth(flick.pictureWarmth),
   };
 }
 
@@ -295,6 +399,14 @@ export function placeClip(clips: Clip[], trackId: string, clip: Clip): Clip[] {
   return packTrack([...clips, { ...clip, trackId, startSec: end }], trackId);
 }
 
+/** The path the save dialog should open on. Keeps the channel's own slash, so Windows does not treat the folder as part of the file name. */
+export function exportSavePath(dir: string, name: string): string {
+  const slash = dir.includes("\\") ? "\\" : "/";
+  const root = dir.replace(/[\\/]+$/, "");
+  const safe = name.replace(/[<>:"|?*]/g, "").trim() || "Cut";
+  return `${root}${slash}exports${slash}${safe}.mp4`;
+}
+
 export function visibleRegions(regions: Region[]): Region[] {
   return regions.filter((region) => !region.hidden && region.height > 0.01).sort((a, b) => a.y - b.y);
 }
@@ -377,6 +489,41 @@ function region(id: string, trackId: string, y: number, height: number): Region 
 
 function track(id: string, name: string, muted: boolean): Track {
   return { id, name, kind: "video", muted };
+}
+
+const MACHINE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CAMERA_STAMP = /^(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})?$/;
+
+export function fileStem(name: string): string {
+  const stem = name.replace(/\.[^.]+$/, "").trim();
+  return stem || name.trim();
+}
+
+export function isMachineStem(value: string): boolean {
+  const stem = fileStem(value);
+  return !stem || MACHINE_UUID.test(stem) || CAMERA_STAMP.test(stem);
+}
+
+export function spokenLine(value: string | undefined): string {
+  const text = value?.replace(/\s+/g, " ").trim() ?? "";
+  if (!text || isMachineStem(text) || /\.(mp4|mov|m4v|webm|mkv)$/i.test(text)) return "";
+  return text;
+}
+
+export function shelfName(
+  fileName: string,
+  peers: { id: string; name: string }[] = [],
+  selfId = "",
+): { title: string; mark: string } {
+  const stem = fileStem(fileName);
+  if (stem && !isMachineStem(stem)) return { title: stem.replace(/_+/g, " "), mark: "" };
+  const twins = peers.filter((peer) => fileStem(peer.name).toLowerCase() === stem.toLowerCase());
+  if (twins.length < 2 || !selfId) return { title: "Clip", mark: "" };
+  const place = twins
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .findIndex((peer) => peer.id === selfId);
+  return { title: "Clip", mark: place >= 0 ? String(place + 1) : "" };
 }
 
 function slot(id: string, trackId: string, startSec: number, duration: number, label: string): Clip {

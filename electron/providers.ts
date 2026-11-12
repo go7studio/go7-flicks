@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { ConnectionPublic, VoiceOption } from "../src/shared/model";
+import { subscriptionRefusal, type ConnectionPublic, type VoiceOption } from "../src/shared/model";
 
 const exec = promisify(execFile);
 
@@ -15,6 +15,8 @@ export type ProviderTest = {
 };
 
 export async function testProvider(connection: ConnectionPublic, key: string | null): Promise<ProviderTest> {
+  const blocked = subscriptionRefusal(connection.baseUrl, connection.model);
+  if (blocked) return { ok: false, message: blocked };
   if (connection.auth === "cli") return testCli(connection);
   if (!key) return { ok: false, message: "Add an API key first." };
   if (connection.kind === "elevenlabs") return testEleven(connection, key);
@@ -23,6 +25,8 @@ export async function testProvider(connection: ConnectionPublic, key: string | n
 }
 
 export async function writeLine(connection: ConnectionPublic, key: string | null, prompt: string): Promise<string> {
+  const blocked = subscriptionRefusal(connection.baseUrl, connection.model);
+  if (blocked) throw new Error(blocked);
   if (connection.auth === "cli") {
     const text = await runCli(connection, prompt);
     return cleanLine(text);
@@ -36,6 +40,24 @@ export async function writeLine(connection: ConnectionPublic, key: string | null
   const result = await testOpenAI(connection, key, prompt);
   if (!result.ok) throw new Error(result.message);
   return cleanLine(result.message);
+}
+
+export async function askAssistant(connection: ConnectionPublic, key: string | null, prompt: string): Promise<string> {
+  const blocked = subscriptionRefusal(connection.baseUrl, connection.model);
+  if (blocked) throw new Error(blocked);
+  if (connection.kind === "elevenlabs" || connection.kind === "minimax") {
+    throw new Error("ElevenLabs and MiniMax stay voice. Pick Claude, Codex, Grok, or Cursor.");
+  }
+  if (connection.auth === "cli") return keepReply(await runCli(connection, prompt, 700));
+  if (!key) throw new Error("Add an API key first.");
+  if (connection.api === "anthropic-messages") {
+    const result = await testAnthropic(connection, key, prompt, 700);
+    if (!result.ok || !result.message) throw new Error(result.message || "The model returned nothing.");
+    return keepReply(result.message);
+  }
+  const result = await testOpenAI(connection, key, prompt, 700, true);
+  if (!result.ok) throw new Error(result.message);
+  return keepReply(result.message);
 }
 
 export async function synthesize(connection: ConnectionPublic, key: string, text: string, dest: string): Promise<void> {
@@ -92,62 +114,157 @@ export async function synthesize(connection: ConnectionPublic, key: string, text
 const CLAUDE_HELPER = "/Users/venomspike/.local/bin/anthropic-call";
 
 async function testCli(connection: ConnectionPublic): Promise<ProviderTest> {
-  if (connection.kind === "claude" && fs.existsSync(CLAUDE_HELPER)) {
-    try {
-      const text = cleanLine(await runCli(connection, "Reply with the single word ok."));
-      return { ok: text.length > 0, message: text.slice(0, 180) || "The CLI returned nothing." };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "The Claude helper call failed." };
-    }
-  }
-  const bin = findBin(connection.kind === "claude" ? "claude" : "codex");
-  if (!bin) {
-    return {
-      ok: false,
-      message: `${connection.kind === "claude" ? "Claude Code" : "Codex"} is not on PATH. Paste an API key instead, or install the CLI and log in.`,
-    };
+  const bin = cliBinary(connection.kind);
+  if (!bin && !(connection.kind === "claude" && fs.existsSync(CLAUDE_HELPER))) {
+    return { ok: false, message: missingCli(connection.kind) };
   }
   try {
     const text = cleanLine(await runCli(connection, "Reply with the single word ok."));
-    return { ok: text.length > 0, message: text.slice(0, 180) || "The CLI returned nothing." };
+    const refused = loginMessage(connection.kind, text);
+    if (refused) return { ok: false, message: refused };
+    return { ok: text.length > 0, message: text.slice(0, 180) || "The program returned nothing." };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "The CLI call failed." };
+    const detail = commandText(error);
+    return { ok: false, message: loginMessage(connection.kind, detail) || detail.slice(0, 400) };
   }
 }
 
-async function runCli(connection: ConnectionPublic, prompt: string): Promise<string> {
+async function runCli(connection: ConnectionPublic, prompt: string, maxTokens = 80): Promise<string> {
   const claude = connection.kind === "claude";
   if (claude && fs.existsSync(CLAUDE_HELPER)) {
     const result = await exec(
       CLAUDE_HELPER,
-      ["--account", "auto", "--model", "haiku", "--effort", "low", "--max-tokens", "80", "--cache", "none", "--", prompt],
+      ["--account", "auto", "--model", "haiku", "--effort", "low", "--max-tokens", String(maxTokens), "--cache", "none", "--", prompt],
       { timeout: 90000, encoding: "utf8", maxBuffer: 1_000_000 },
     );
     return (result.stdout ?? "").trim();
   }
-  const bin = findBin(claude ? "claude" : "codex");
-  if (!bin) throw new Error(claude ? "Claude Code is not installed." : "Codex is not installed.");
-  const args = claude
-    ? ["-p", prompt]
-    : [
-        "exec",
-        "--model",
-        connection.model.trim() || "gpt-5.6-terra",
-        "--skip-git-repo-check",
-        "-c",
-        "model_reasoning_effort=low",
-        prompt,
-      ];
-  const result = await exec(bin, args, {
-    timeout: 90000,
-    encoding: "utf8",
-    maxBuffer: 1_000_000,
-    stdio: ["ignore", "pipe", "pipe"],
-  } as unknown as { timeout: number; encoding: "utf8"; maxBuffer: number });
-  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+  const bin = cliBinary(connection.kind);
+  if (!bin) throw new Error(missingCli(connection.kind));
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "go7-line-"));
+  try {
+    if (connection.kind === "grok") {
+      return await runCommand(
+        bin,
+        [
+          "-p",
+          prompt,
+          "-m",
+          connection.model.trim() || "grok-4.7",
+          "--max-turns",
+          "1",
+          "--output-format",
+          "plain",
+          "--no-plan",
+          "--cwd",
+          scratch,
+          "--disallowed-tools",
+          "web_search,web_fetch,write,search_replace,run_terminal_cmd,Bash,Agent,read_file,grep,list_dir",
+        ],
+        scratch,
+      );
+    }
+    if (connection.kind === "cursor") {
+      const args = ["-p", "--mode", "ask", "--output-format", "text", "--trust", "--workspace", scratch];
+      if (connection.model.trim()) args.push("--model", connection.model.trim());
+      args.push(prompt);
+      return await runCommand(bin, args, scratch);
+    }
+    const args = claude
+      ? ["-p", prompt]
+      : [
+          "exec",
+          "--model",
+          connection.model.trim() || "gpt-5.6-terra",
+          "--skip-git-repo-check",
+          "-c",
+          "model_reasoning_effort=low",
+          prompt,
+        ];
+    return await runCommand(bin, args, scratch);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
-async function testAnthropic(connection: ConnectionPublic, key: string, prompt: string): Promise<ProviderTest> {
+function cliBinary(kind: string): string | null {
+  if (kind === "claude") return findBin("claude");
+  if (kind === "codex") return findBin("codex");
+  if (kind === "grok") return findBin("grok");
+  if (kind === "cursor") return findBin("cursor-agent");
+  return null;
+}
+
+function missingCli(kind: string): string {
+  if (kind === "grok") return "Grok is not on this computer. Paste an xAI API key instead.";
+  if (kind === "cursor") {
+    return "Cursor's agent is not installed. This app does not store a Cursor key. Install cursor-agent and log in.";
+  }
+  if (kind === "claude") return "Claude Code is not on PATH. Paste an API key instead, or install the CLI and log in.";
+  return "Codex is not on PATH. Paste an API key instead, or install the CLI and log in.";
+}
+
+function loginMessage(kind: string, text: string): string | null {
+  if (kind === "cursor" && /not logged in|authenticate|CURSOR_API_KEY|login required|sign in/i.test(text)) {
+    return "Cursor is not logged in. Run cursor-agent login, or set CURSOR_API_KEY. This app does not store a Cursor key.";
+  }
+  if (kind === "grok" && /not signed in|XAI_API_KEY/i.test(text)) {
+    return "Grok is not signed in, and no xAI API key is saved. Paste a key on the Grok row. The host is https://api.x.ai/v1 and the model is grok-4.7.";
+  }
+  return null;
+}
+
+async function runCommand(file: string, args: string[], cwd: string): Promise<string> {
+  const opts = {
+    timeout: 120000,
+    encoding: "utf8" as const,
+    maxBuffer: 1_000_000,
+    cwd,
+    windowsHide: true,
+  };
+  try {
+    if (process.platform === "win32" && /\.(cmd|bat)$/i.test(file)) {
+      const result = await exec(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", winCommand(file, args)], {
+        ...opts,
+        windowsVerbatimArguments: true,
+      });
+      return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+    }
+    if (process.platform === "win32" && /\.ps1$/i.test(file)) {
+      const result = await exec(
+        "powershell.exe",
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file, ...args],
+        opts,
+      );
+      return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+    }
+    const result = await exec(file, args, opts);
+    return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+  } catch (error) {
+    throw new Error(commandText(error));
+  }
+}
+
+function winCommand(file: string, args: string[]): string {
+  const parts = [file, ...args].map((part) => {
+    if (!part) return '""';
+    if (!/[\s"&|<>^]/.test(part)) return part;
+    return `"${part.replaceAll('"', '""')}"`;
+  });
+  return `"${parts.join(" ")}"`;
+}
+
+function commandText(error: unknown): string {
+  if (error && typeof error === "object") {
+    const err = error as { message?: string; stderr?: string; stdout?: string };
+    const detail = `${err.stderr ?? ""}\n${err.stdout ?? ""}`.trim();
+    if (detail) return detail.slice(0, 500);
+    if (err.message) return err.message;
+  }
+  return "The program call failed.";
+}
+
+async function testAnthropic(connection: ConnectionPublic, key: string, prompt: string, maxTokens = 200): Promise<ProviderTest> {
   const response = await fetch(joinUrl(connection.baseUrl, "/v1/messages"), {
     method: "POST",
     headers: {
@@ -157,7 +274,7 @@ async function testAnthropic(connection: ConnectionPublic, key: string, prompt: 
     },
     body: JSON.stringify({
       model: connection.model,
-      max_tokens: 200,
+      max_tokens: maxTokens,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -170,7 +287,13 @@ async function testAnthropic(connection: ConnectionPublic, key: string, prompt: 
   return { ok: text.length > 0, message: text || "Claude returned nothing." };
 }
 
-async function testOpenAI(connection: ConnectionPublic, key: string, prompt: string): Promise<ProviderTest> {
+async function testOpenAI(
+  connection: ConnectionPublic,
+  key: string,
+  prompt: string,
+  maxTokens = 200,
+  keep = false,
+): Promise<ProviderTest> {
   const response = await fetch(joinUrl(connection.baseUrl, "/chat/completions"), {
     method: "POST",
     headers: {
@@ -180,7 +303,7 @@ async function testOpenAI(connection: ConnectionPublic, key: string, prompt: str
     body: JSON.stringify({
       model: connection.model,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 200,
+      max_tokens: maxTokens,
     }),
   });
   const body = (await response.json().catch(() => null)) as {
@@ -191,7 +314,8 @@ async function testOpenAI(connection: ConnectionPublic, key: string, prompt: str
   if (!response.ok) {
     return { ok: false, message: body?.error?.message || body?.base_resp?.status_msg || `The host returned ${response.status}.` };
   }
-  const text = cleanLine(body?.choices?.[0]?.message?.content ?? "");
+  const raw = body?.choices?.[0]?.message?.content ?? "";
+  const text = keep ? keepReply(raw) : cleanLine(raw);
   return { ok: text.length > 0, message: text || "The host returned nothing." };
 }
 
@@ -218,16 +342,25 @@ async function testEleven(connection: ConnectionPublic, key: string): Promise<Pr
 }
 
 function findBin(name: string): string | null {
+  const home = os.homedir();
+  const extra = [
+    path.join(home, ".grok", "bin"),
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "cursor-agent") : "",
+  ];
   const dirs = [
-    path.join(os.homedir(), ".local", "bin"),
+    ...extra,
+    path.join(home, ".local", "bin"),
     "/opt/homebrew/bin",
     "/usr/local/bin",
     ...(process.env.PATH ?? "").split(path.delimiter),
   ];
+  const suffixes = process.platform === "win32" ? [".exe", ".cmd", ".ps1"] : [""];
   for (const dir of dirs) {
     if (!dir) continue;
-    const file = path.join(dir, process.platform === "win32" ? `${name}.exe` : name);
-    if (fs.existsSync(file)) return file;
+    for (const suffix of suffixes) {
+      const file = path.join(dir, `${name}${suffix}`);
+      if (fs.existsSync(file)) return file;
+    }
   }
   return null;
 }
@@ -242,6 +375,18 @@ function joinUrl(base: string, suffix: string): string {
 async function errorText(response: Response): Promise<string> {
   const text = await response.text();
   return text.slice(0, 400) || `Request failed (${response.status}).`;
+}
+
+function keepReply(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      return !trimmed.startsWith("warning:") && !/reading additional input from stdin/i.test(trimmed);
+    })
+    .join("\n")
+    .trim();
 }
 
 function cleanLine(text: string): string {

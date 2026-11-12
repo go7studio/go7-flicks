@@ -7,7 +7,7 @@ import { RankingStudio } from "./ui/RankingStudio";
 import { SplitStudio } from "./ui/SplitStudio";
 
 export type Route =
-  | { name: "home" }
+  | { name: "home"; nav?: "home" | "library" }
   | { name: "connections"; back: Route }
   | { name: "channel"; dir: string }
   | { name: "canvas"; dir: string; flickId: string }
@@ -25,13 +25,19 @@ export function App() {
     );
   }
   if (route.name === "connections") {
-    return <ConnectionsScreen onBack={() => setRoute(route.back)} />;
+    return (
+      <ConnectionsScreen
+        onHome={() => setRoute({ name: "home", nav: "home" })}
+        onLibrary={() => setRoute({ name: "home", nav: "library" })}
+        onBack={route.back.name === "home" ? undefined : () => setRoute(route.back)}
+      />
+    );
   }
   if (route.name === "channel") {
     return (
       <ChannelScreen
         dir={route.dir}
-        onHome={() => setRoute({ name: "home" })}
+        onHome={() => setRoute({ name: "home", nav: "home" })}
         onConnections={() => setRoute({ name: "connections", back: route })}
         onOpen={(flickId) => setRoute({ name: "canvas", dir: route.dir, flickId })}
       />
@@ -49,12 +55,15 @@ export function App() {
         dir={route.dir}
         flickId={route.flickId}
         onBack={() => setRoute({ name: "channel", dir: route.dir })}
+        onHome={() => setRoute({ name: "home", nav: "home" })}
+        onLibrary={() => setRoute({ name: "home", nav: "library" })}
         onConnections={() => setRoute({ name: "connections", back: route })}
       />
     );
   }
   return (
     <HomeScreen
+      openOn={route.nav ?? "home"}
       onOpen={(dir) => setRoute({ name: "channel", dir })}
       onOpenFlick={(dir, flickId) => setRoute({ name: "canvas", dir, flickId })}
       onRanking={() => setRoute({ name: "ranking" })}

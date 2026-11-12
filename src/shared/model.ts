@@ -1,4 +1,4 @@
-export type ConnectionKind = "claude" | "codex" | "elevenlabs" | "minimax" | "other";
+export type ConnectionKind = "claude" | "codex" | "grok" | "cursor" | "elevenlabs" | "minimax" | "other";
 
 export type ChatApi = "anthropic-messages" | "openai-completions";
 
@@ -63,6 +63,8 @@ export type Clip = {
   label: string;
   sourceUrl?: string;
   line?: string;
+  /** 0 is the left edge of the picture, 1 is the right. The vertical crop keeps the person there. */
+  focus?: number;
 };
 
 export type MediaAsset = {
@@ -94,6 +96,10 @@ export type Flick = {
   accentWords?: string;
   titleStroke?: number;
   showRank?: boolean;
+  titleFont?: string;
+  lineColor?: string;
+  lineSize?: number;
+  pictureWarmth?: number;
 };
 
 export type FlickSummary = {
@@ -125,6 +131,10 @@ export type Template = {
   accentWords?: string;
   titleStroke?: number;
   showRank?: boolean;
+  titleFont?: string;
+  lineColor?: string;
+  lineSize?: number;
+  pictureWarmth?: number;
 };
 
 export type GpuProbe = {
@@ -144,6 +154,8 @@ export type GpuProbe = {
 export type RecentChannel = {
   path: string;
   name: string;
+  clippedAt?: string;
+  madeAt?: string;
 };
 
 export type ShelfKind = "audio" | "video";
@@ -157,6 +169,7 @@ export type ShelfEntry = {
   height: number;
   codec: string;
   credit?: string;
+  madeAt?: string;
 };
 
 export type CallResult = {
@@ -185,6 +198,14 @@ export function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+const SUBSCRIPTION_TARGET = /antigravity|cloudcode-pa|gemini\.google\.com/i;
+
+/** The Gemini API stays available. The app subscription and Antigravity do not. */
+export function subscriptionRefusal(baseUrl: string, model: string): string | null {
+  if (!SUBSCRIPTION_TARGET.test(`${baseUrl} ${model}`)) return null;
+  return "This app does not call the Gemini subscription or Antigravity.";
+}
+
 export function defaultsFor(kind: ConnectionKind): Pick<ConnectionDraft, "auth" | "baseUrl" | "model" | "api" | "voiceId" | "name"> {
   if (kind === "claude") {
     return {
@@ -202,6 +223,26 @@ export function defaultsFor(kind: ConnectionKind): Pick<ConnectionDraft, "auth" 
       auth: "key",
       baseUrl: "https://api.openai.com/v1",
       model: "gpt-4.1-mini",
+      api: "openai-completions",
+      voiceId: "",
+    };
+  }
+  if (kind === "grok") {
+    return {
+      name: "Grok",
+      auth: "key",
+      baseUrl: "https://api.x.ai/v1",
+      model: "grok-4.7",
+      api: "openai-completions",
+      voiceId: "",
+    };
+  }
+  if (kind === "cursor") {
+    return {
+      name: "Cursor",
+      auth: "cli",
+      baseUrl: "",
+      model: "",
       api: "openai-completions",
       voiceId: "",
     };

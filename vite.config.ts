@@ -18,7 +18,10 @@ export default defineConfig({
         entry: "electron/main.ts",
         onstart({ startup }) {
           const argv = [".", "--no-sandbox"];
-          if (process.env.GO7FLICKS_DEBUG) argv.push("--remote-debugging-port=9223");
+          if (process.env.GO7FLICKS_DEBUG) {
+            argv.push("--remote-debugging-port=9223");
+            argv.push("--disable-features=CalculateNativeWinOcclusion");
+          }
           void startup(argv);
         },
         vite: {

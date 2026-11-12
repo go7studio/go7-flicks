@@ -1,10 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, type NativeImage } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, type NativeImage } from "electron";
+
+app.setName("Go7Flicks");
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { exportCut, resolveAsset } from "./cut";
+import { downloadClip, searchSubject } from "./download";
+import { clipLink } from "../src/shared/link";
 import {
   connectionKey,
   createChannel,
@@ -24,18 +29,51 @@ import {
   saveTemplate,
   updateChannel,
 } from "./library";
+import { mediaMadeAt } from "./made";
 import { startMediaServer, type MediaGate } from "./media-server";
+import { cleanUnused } from "./cleanup";
+import { setStagingDir, stagingDir } from "./settings";
 import { listShelf, shelfSource } from "./shelf";
+import { stageSource, stagedPathIfReady } from "./stage";
 import { userDir } from "./vault";
+import { failureLine, trimToAction } from "./action";
 import { probeGpu, probeMedia } from "./probe";
-import { synthesize, testProvider, writeLine } from "./providers";
+import { askAssistant, synthesize, testProvider, writeLine } from "./providers";
 import { seedMachineAccounts } from "./seed-accounts";
 import { renderFlick } from "./styled";
 import type { FlickProps } from "../src/remotion/FlickComposition";
-import type { ChannelFile, ConnectionDraft, Flick } from "../src/shared/model";
+import type { ChannelFile, ConnectionDraft, Flick, MediaAsset } from "../src/shared/model";
+import { subjectCount } from "../src/shared/subject";
 
-const gate: MediaGate = { channelDir: null, channel: null };
+const gate: MediaGate = { channelDir: null, channel: null, stagingDir: null };
 let mediaBase = "";
+
+function useStaging(): string {
+  const dir = stagingDir();
+  gate.stagingDir = dir;
+  return dir;
+}
+
+function fileUrl(absolute: string): string {
+  return `${mediaBase}/file?path=${encodeURIComponent(absolute)}`;
+}
+
+function usedMediaIds(flick: Flick): Set<string> {
+  const ids = new Set<string>();
+  for (const clip of flick.clips) {
+    if (clip.mediaId) ids.add(clip.mediaId);
+  }
+  if (flick.musicId) ids.add(flick.musicId);
+  return ids;
+}
+
+async function localAsset(dir: string, asset: MediaAsset): Promise<MediaAsset> {
+  const source = resolveAsset(dir, asset);
+  if (!source || !fs.existsSync(source)) return asset;
+  const local = await stageSource(source, useStaging());
+  if (path.resolve(local) === path.resolve(source)) return asset;
+  return { ...asset, absolutePath: local, relativePath: undefined };
+}
 
 function fail(error: unknown): { ok: false; message: string } {
   return { ok: false, message: error instanceof Error ? error.message : "Something went wrong." };
@@ -53,36 +91,49 @@ function watch(dir: string): ChannelFile {
   return channel;
 }
 
-function present(dir: string, channel: ChannelFile) {
-  return channel.media.map((asset) => {
-    const absolutePath = resolveAsset(dir, asset) ?? "";
-    const missing = !absolutePath || !fs.existsSync(absolutePath);
-    return {
+async function present(dir: string, channel: ChannelFile, stageIds?: Set<string>) {
+  const staging = useStaging();
+  const rows = [];
+  for (const asset of channel.media) {
+    const stored = resolveAsset(dir, asset) ?? "";
+    const missing = !stored || !fs.existsSync(stored);
+    let readable = stored;
+    if (!missing && stageIds?.has(asset.id)) readable = await stageSource(stored, staging);
+    else if (!missing) readable = stagedPathIfReady(stored, staging) ?? stored;
+    const madeAt = mediaMadeAt(asset.name, stored || null);
+    rows.push({
       ...asset,
-      absolutePath,
+      absolutePath: stored,
       missing,
-      previewUrl: missing ? null : `${mediaBase}/file?path=${encodeURIComponent(absolutePath)}`,
-    };
-  });
+      workingCopy: !missing && path.resolve(readable) !== path.resolve(stored),
+      previewUrl: missing ? null : fileUrl(readable),
+      ...(madeAt ? { madeAt } : {}),
+    });
+  }
+  return rows;
 }
 
-function payload(dir: string, channel: ChannelFile) {
-  return { ok: true as const, dir, channel, media: present(dir, channel), mediaBase };
+async function payload(dir: string, channel: ChannelFile, stageIds?: Set<string>) {
+  return { ok: true as const, dir, channel, media: await present(dir, channel, stageIds), mediaBase };
 }
 
-function voicePreview(dir: string, flick: Flick): string | null {
+async function voicePreview(dir: string, flick: Flick): Promise<string | null> {
   if (flick.voiceRelative !== "voice.mp3") return null;
   const absolute = path.join(dir, "flicks", flick.id, "voice.mp3");
   if (!fs.existsSync(absolute)) return null;
-  return `${mediaBase}/file?path=${encodeURIComponent(absolute)}`;
+  const local = await stageSource(absolute, useStaging());
+  return fileUrl(local);
 }
 
-function flickProps(dir: string, channel: ChannelFile, flick: Flick, preview: boolean): FlickProps {
-  const clips = flick.clips.map((clip) => {
+async function flickProps(dir: string, channel: ChannelFile, flick: Flick, preview: boolean): Promise<FlickProps> {
+  const staging = useStaging();
+  const clips = [];
+  for (const clip of flick.clips) {
     const asset = channel.media.find((item) => item.id === clip.mediaId);
-    const absolute = resolveAsset(dir, asset);
-    const ready = Boolean(absolute && fs.existsSync(absolute));
-    return {
+    const stored = resolveAsset(dir, asset);
+    const ready = Boolean(stored && fs.existsSync(stored));
+    const absolute = ready && stored ? await stageSource(stored, staging) : stored;
+    clips.push({
       id: clip.id,
       trackId: clip.trackId,
       startSec: clip.startSec,
@@ -90,14 +141,17 @@ function flickProps(dir: string, channel: ChannelFile, flick: Flick, preview: bo
       outSec: clip.outSec,
       label: clip.label,
       line: clip.line,
-      src: ready ? `${mediaBase}/file?path=${encodeURIComponent(absolute as string)}` : undefined,
-    };
-  });
+      focus: clip.focus,
+      src: absolute ? fileUrl(absolute) : undefined,
+    });
+  }
   const voiceAbs = flick.voiceRelative ? path.join(dir, "flicks", flick.id, flick.voiceRelative) : "";
   const voiceReady = Boolean(voiceAbs && fs.existsSync(voiceAbs));
+  const voiceLocal = voiceReady ? await stageSource(voiceAbs, staging) : "";
   const musicAsset = channel.media.find((item) => item.id === flick.musicId);
   const musicAbs = resolveAsset(dir, musicAsset);
   const musicReady = Boolean(musicAbs && fs.existsSync(musicAbs));
+  const musicLocal = musicReady && musicAbs ? await stageSource(musicAbs, staging) : "";
   return {
     fps: flick.fps,
     width: flick.width,
@@ -108,12 +162,16 @@ function flickProps(dir: string, channel: ChannelFile, flick: Flick, preview: bo
     accentWords: flick.accentWords,
     titleStroke: flick.titleStroke,
     showRank: flick.showRank,
+    titleFont: flick.titleFont,
+    lineColor: flick.lineColor,
+    lineSize: flick.lineSize,
+    pictureWarmth: flick.pictureWarmth,
     regions: flick.regions,
     tracks: flick.tracks,
     clips,
-    voiceSrc: voiceReady ? `${mediaBase}/file?path=${encodeURIComponent(voiceAbs)}` : undefined,
-    musicSrc: musicReady ? `${mediaBase}/file?path=${encodeURIComponent(musicAbs as string)}` : undefined,
-    musicCredit: musicReady ? flick.musicCredit?.trim() || undefined : undefined,
+    voiceSrc: voiceLocal ? fileUrl(voiceLocal) : undefined,
+    musicSrc: musicLocal ? fileUrl(musicLocal) : undefined,
+    musicCredit: musicLocal ? flick.musicCredit?.trim() || undefined : undefined,
     preview,
   };
 }
@@ -121,6 +179,13 @@ function flickProps(dir: string, channel: ChannelFile, flick: Flick, preview: bo
 async function exportFile(kind: "cut" | "styled", dir: string, flickId: string, outputPath: string) {
   const channel = watch(dir);
   const flick = readFlick(dir, flickId);
+  const ids = usedMediaIds(flick);
+  const media: MediaAsset[] = [];
+  for (const asset of channel.media) {
+    media.push(ids.has(asset.id) ? await localAsset(dir, asset) : asset);
+  }
+  const voiceStored = flick.voiceRelative ? path.join(dir, "flicks", flick.id, flick.voiceRelative) : "";
+  const voiceFile = voiceStored && fs.existsSync(voiceStored) ? await stageSource(voiceStored, useStaging()) : undefined;
   if (kind === "cut") {
     const gpu = await probeGpu();
     if (!gpu.ffmpegPath || !gpu.chosenEncoder) throw new Error("ffmpeg is not available for cutting.");
@@ -129,15 +194,18 @@ async function exportFile(kind: "cut" | "styled", dir: string, flickId: string, 
       encoder: gpu.chosenEncoder,
       channelDir: dir,
       flick,
-      media: channel.media,
+      media,
       outputPath,
+      voiceFile,
+      videoBitrate: "8M",
     });
   } else {
     await renderFlick({
       entry: path.join(projectRoot(), "src/remotion/index.ts"),
       resourcesPath: process.resourcesPath,
       outputPath,
-      props: flickProps(dir, channel, flick, false),
+      props: await flickProps(dir, channel, flick, false),
+      videoBitrate: "8M",
     });
   }
   return { ok: true as const, message: "Export ready.", outputPath };
@@ -159,7 +227,9 @@ async function importChosen(dir: string, mode: "copy" | "link", kind: "video" | 
     const info = await probeMedia(picked.filePaths[0], gpu.ffmpegPath);
     const asset = importMedia(dir, picked.filePaths[0], mode, info);
     const channel = watch(dir);
-    return { ok: true as const, message: asset.name, asset, media: present(dir, channel) };
+    const media = await present(dir, channel, new Set([asset.id]));
+    const workingCopy = media.find((item) => item.id === asset.id)?.workingCopy ?? false;
+    return { ok: true as const, message: asset.name, asset, media, workingCopy };
   } catch (error) {
     return fail(error);
   }
@@ -180,8 +250,11 @@ function registerIpc(): void {
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
   ipcMain.handle("dialog:save", async (_event, defaultPath: string) => {
-    const result = await dialog.showSaveDialog({
-      defaultPath,
+    const target = path.normalize(String(defaultPath ?? ""));
+    if (path.isAbsolute(target)) fs.mkdirSync(path.dirname(target), { recursive: true });
+    const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const result = await dialog.showSaveDialog(parent, {
+      defaultPath: target,
       filters: [{ name: "MP4", extensions: ["mp4"] }],
     });
     return result.canceled ? null : result.filePath ?? null;
@@ -190,7 +263,7 @@ function registerIpc(): void {
     try {
       const created = createChannel(parent, name);
       watch(created.dir);
-      return payload(created.dir, created.channel);
+      return await payload(created.dir, created.channel);
     } catch (error) {
       return fail(error);
     }
@@ -199,7 +272,7 @@ function registerIpc(): void {
     try {
       const channel = openChannel(dir);
       watch(dir);
-      return payload(dir, channel);
+      return await payload(dir, channel);
     } catch (error) {
       return fail(error);
     }
@@ -208,7 +281,7 @@ function registerIpc(): void {
     try {
       const channel = updateChannel(dir, patch);
       watch(dir);
-      return { ok: true as const, channel, media: present(dir, channel) };
+      return { ok: true as const, channel, media: await present(dir, channel) };
     } catch (error) {
       return fail(error);
     }
@@ -225,7 +298,7 @@ function registerIpc(): void {
     try {
       const channel = watch(dir);
       const flick = readFlick(dir, flickId);
-      return { ...payload(dir, channel), flick, voicePreview: voicePreview(dir, flick) };
+      return { ...(await payload(dir, channel, usedMediaIds(flick))), flick, voicePreview: await voicePreview(dir, flick) };
     } catch (error) {
       return fail(error);
     }
@@ -241,7 +314,127 @@ function registerIpc(): void {
   ipcMain.handle("media:import", async (_event, dir: string, mode: "copy" | "link") =>
     importChosen(dir, mode, "video"),
   );
+  ipcMain.handle("media:find", async (_event, dir: string, subject: string, count?: number) => {
+    const cleanups: Array<() => void> = [];
+    try {
+      const want = subjectCount(count);
+      const gpu = await probeGpu();
+      if (!gpu.ffmpegPath) throw new Error("ffmpeg is not available to read that file.");
+      const hits = await searchSubject(subject, path.join(userDir(), "bin"));
+      const landed: { asset: MediaAsset; sourceUrl: string; title: string; inSec: number; outSec: number; focus: number }[] = [];
+      let lastError = "No video clips for that subject.";
+      for (const hit of hits) {
+        if (landed.length >= want) break;
+        try {
+          const got = await downloadClip(hit.url, gpu.ffmpegPath, path.join(userDir(), "bin"));
+          cleanups.push(got.cleanup);
+          const info = await probeMedia(got.file, gpu.ffmpegPath);
+          if (info.width < 2 || info.height < 2 || info.durationSec < 0.4) {
+            lastError = "That result was not a video.";
+            continue;
+          }
+          if (info.durationSec > 90) {
+            lastError = "That clip is too long.";
+            continue;
+          }
+          const cut = await trimToAction(got.file, gpu.ffmpegPath, info.durationSec);
+          const asset = importMedia(dir, got.file, "copy", info);
+          landed.push({ asset, sourceUrl: hit.url, title: hit.title, inSec: cut.inSec, outSec: cut.outSec, focus: cut.focus });
+        } catch (error) {
+          lastError = failureLine(error);
+        }
+      }
+      if (!landed.length) throw new Error(lastError);
+      const channel = watch(dir);
+      const media = await present(dir, channel, new Set(landed.map((item) => item.asset.id)));
+      const clips = landed.map((item) => {
+        const resolved = media.find((row) => row.id === item.asset.id);
+        return {
+          mediaId: item.asset.id,
+          mediaName: item.asset.name,
+          previewUrl: resolved?.previewUrl ?? null,
+          durationSec: item.asset.durationSec,
+          sourceUrl: item.sourceUrl,
+          title: item.title || item.asset.name,
+          inSec: item.inSec,
+          outSec: item.outSec,
+          focus: item.focus,
+          ...(resolved?.madeAt ? { madeAt: resolved.madeAt } : {}),
+        };
+      });
+      const workingCopy = landed.some((item) => media.find((row) => row.id === item.asset.id)?.workingCopy);
+      return {
+        ok: true as const,
+        message: clips.length === 1 ? "Found 1 clip." : `Found ${clips.length} clips.`,
+        clips,
+        media,
+        workingCopy,
+      };
+    } catch (error) {
+      return fail(error);
+    } finally {
+      for (const cleanup of cleanups) cleanup();
+    }
+  });
+  ipcMain.handle("media:download", async (_event, dir: string, url: string) => {
+    let cleanup = () => {};
+    try {
+      const gpu = await probeGpu();
+      if (!gpu.ffmpegPath) throw new Error("ffmpeg is not available to read that file.");
+      const got = await downloadClip(url, gpu.ffmpegPath, path.join(userDir(), "bin"));
+      cleanup = got.cleanup;
+      const info = await probeMedia(got.file, gpu.ffmpegPath);
+      const asset = importMedia(dir, got.file, "copy", info);
+      const channel = watch(dir);
+      const media = await present(dir, channel, new Set([asset.id]));
+      const workingCopy = media.find((item) => item.id === asset.id)?.workingCopy ?? false;
+      return { ok: true as const, message: asset.name, asset, media, workingCopy, sourceUrl: clipLink(url) };
+    } catch (error) {
+      return fail(error);
+    } finally {
+      cleanup();
+    }
+  });
   ipcMain.handle("media:importAudio", async (_event, dir: string) => importChosen(dir, "copy", "audio"));
+  ipcMain.handle("media:stage", async (_event, dir: string, assetId: string) => {
+    try {
+      const channel = watch(dir);
+      if (!channel.media.some((item) => item.id === assetId)) throw new Error("That file is missing.");
+      const media = await present(dir, channel, new Set([assetId]));
+      return { ok: true as const, message: "Ready.", media };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("library:clean", async () => {
+    try {
+      const result = await cleanUnused(
+        useStaging(),
+        recentChannels().map((item) => item.path),
+      );
+      const copies = result.removedCopies.length;
+      const exportsRemoved = result.removedExports.length;
+      const message =
+        copies || exportsRemoved
+          ? `Removed ${copies} unused working ${copies === 1 ? "copy" : "copies"} and ${exportsRemoved} unfinished or numbered ${exportsRemoved === 1 ? "extra" : "extras"}.`
+          : "Nothing unused to clean.";
+      return { ok: true as const, message, removedCopies: copies, removedExports: exportsRemoved };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("settings:get", () => ({ stagingDir: useStaging() }));
+  ipcMain.handle("settings:staging", async () => {
+    const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+    if (result.canceled || !result.filePaths[0]) return { ok: false as const, message: "No folder chosen.", stagingDir: useStaging() };
+    try {
+      const next = setStagingDir(result.filePaths[0]);
+      gate.stagingDir = next;
+      return { ok: true as const, message: "Working copies stay in that folder.", stagingDir: next };
+    } catch (error) {
+      return { ...fail(error), stagingDir: useStaging() };
+    }
+  });
   ipcMain.handle("shelf:list", () => listShelf(userDir()));
   ipcMain.handle("shelf:use", async (_event, dir: string, id: string) => {
     try {
@@ -249,11 +442,14 @@ function registerIpc(): void {
       if (!picked) return { ok: false as const, message: "That saved file is missing." };
       const asset = importMedia(dir, picked.file, "copy", picked.item);
       const channel = watch(dir);
+      const media = await present(dir, channel, new Set([asset.id]));
+      const workingCopy = media.find((item) => item.id === asset.id)?.workingCopy ?? false;
       return {
         ok: true as const,
         message: asset.name,
         asset,
-        media: present(dir, channel),
+        media,
+        workingCopy,
         kind: picked.item.kind,
         credit: picked.item.credit,
       };
@@ -319,6 +515,20 @@ function registerIpc(): void {
       return fail(error);
     }
   });
+  ipcMain.handle("ai:ask", async (_event, connectionId: string, prompt: string) => {
+    try {
+      if (!prompt.trim() || prompt.length > 8000) throw new Error("That request is empty.");
+      const connection = getConnection(connectionId);
+      if (!connection.connected) throw new Error("Test this connection first.");
+      if (connection.kind === "elevenlabs" || connection.kind === "minimax") {
+        throw new Error("ElevenLabs and MiniMax stay voice. Pick Claude, Codex, Grok, or Cursor.");
+      }
+      const text = await askAssistant(connection, connectionKey(connectionId), prompt);
+      return { ok: true as const, message: "Reply ready.", text };
+    } catch (error) {
+      return fail(error);
+    }
+  });
   ipcMain.handle("ai:voice", async (_event, connectionId: string, dir: string, flickId: string, text: string) => {
     try {
       if (!text.trim()) throw new Error("Write a line before making a voice.");
@@ -332,11 +542,12 @@ function registerIpc(): void {
       const flick = readFlick(dir, flickId);
       flick.voiceRelative = "voice.mp3";
       saveFlick(dir, flick);
+      const local = await stageSource(dest, useStaging());
       return {
         ok: true as const,
         message: "Voice saved.",
         relativePath: "voice.mp3",
-        previewUrl: `${mediaBase}/file?path=${encodeURIComponent(dest)}`,
+        previewUrl: fileUrl(local),
       };
     } catch (error) {
       return fail(error);
@@ -371,15 +582,32 @@ function appIcon(): NativeImage | undefined {
   return undefined;
 }
 
+function fittedWindow(): { x: number; y: number; width: number; height: number; minWidth: number; minHeight: number } {
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(1280, area.width);
+  const height = Math.min(800, area.height);
+  return {
+    x: area.x + Math.max(0, Math.round((area.width - width) / 2)),
+    y: area.y + Math.max(0, Math.round((area.height - height) / 2)),
+    width,
+    height,
+    minWidth: Math.min(960, width),
+    minHeight: Math.min(640, height),
+  };
+}
+
 async function createWindow(): Promise<void> {
   const icon = appIcon();
   if (icon) app.dock?.setIcon(icon);
+  const fitted = fittedWindow();
   const window = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1100,
-    minHeight: 720,
-    backgroundColor: "#10110f",
+    x: fitted.x,
+    y: fitted.y,
+    width: fitted.width,
+    height: fitted.height,
+    minWidth: fitted.minWidth,
+    minHeight: fitted.minHeight,
+    backgroundColor: "#f7f3ea",
     title: "Go7Flicks",
     show: true,
     icon,
@@ -406,6 +634,7 @@ app.whenReady().then(async () => {
     console.error(error instanceof Error ? error.message : "Could not prepare connections.");
   }
   mediaBase = await startMediaServer(gate);
+  gate.stagingDir = stagingDir();
   registerIpc();
   await createWindow();
   app.on("activate", () => {

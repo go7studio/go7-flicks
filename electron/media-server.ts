@@ -6,6 +6,7 @@ import type { ChannelFile } from "../src/shared/model";
 export type MediaGate = {
   channelDir: string | null;
   channel: ChannelFile | null;
+  stagingDir?: string | null;
 };
 
 export function startMediaServer(gate: MediaGate): Promise<string> {
@@ -68,10 +69,14 @@ export function startMediaServer(gate: MediaGate): Promise<string> {
 function allowed(gate: MediaGate, filePath: string): boolean {
   if (!gate.channelDir || !gate.channel) return false;
   const resolved = path.resolve(filePath);
-  const root = path.resolve(gate.channelDir);
-  const relative = path.relative(root, resolved);
-  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) return true;
+  if (inside(gate.channelDir, resolved)) return true;
+  if (gate.stagingDir && inside(gate.stagingDir, resolved)) return true;
   return gate.channel.media.some((item) => item.absolutePath && path.resolve(item.absolutePath) === resolved);
+}
+
+function inside(root: string, resolved: string): boolean {
+  const relative = path.relative(path.resolve(root), resolved);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 function mime(file: string): string {

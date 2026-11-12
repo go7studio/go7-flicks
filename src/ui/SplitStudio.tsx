@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import {
   DUAL_FACE,
   DUAL_GAME,
+  applyDualLayout,
   applyDualShare,
   builtinTemplates,
   dualTopHeight,
@@ -10,16 +11,18 @@ import {
   type DualPreset,
 } from "../shared/canvas";
 import { uid, type Flick, type Template } from "../shared/model";
+import "./polish-desks.css";
 
 type Side = {
   title: string;
+  link: string;
   mediaId: string | null;
   mediaName: string;
   previewUrl: string | null;
   duration: number;
 };
 
-const empty = (): Side => ({ title: "", mediaId: null, mediaName: "", previewUrl: null, duration: 0 });
+const empty = (): Side => ({ title: "", link: "", mediaId: null, mediaName: "", previewUrl: null, duration: 0 });
 
 const ARRANGEMENTS: { id: DualArrangement; label: string }[] = [
   { id: "face-top", label: "Face on top" },
@@ -31,6 +34,11 @@ const PRESETS: { id: DualPreset; label: string }[] = [
   { id: "face-larger", label: "Face larger" },
   { id: "game-larger", label: "Gameplay larger" },
 ];
+
+function matchPreset(arrangement: DualArrangement, share: number): DualPreset | "custom" {
+  const found = PRESETS.find((item) => Math.abs(dualTopHeight(arrangement, item.id) - share) < 0.015);
+  return found?.id ?? "custom";
+}
 
 export function SplitStudio({
   onBack,
@@ -87,6 +95,40 @@ export function SplitStudio({
     return created.dir;
   }
 
+  async function getSide(which: "face" | "game") {
+    const side = which === "face" ? face : game;
+    if (!side.link.trim()) {
+      setMessage("Paste a link.");
+      return;
+    }
+    setBusy(true);
+    setMessage("Getting the clip…");
+    try {
+      const folder = await ensureDir();
+      if (!folder) return;
+      const result = await window.flicks!.downloadMedia(folder, side.link);
+      if (!result.ok || !result.asset) {
+        setMessage(result.message ?? "Could not get that clip.");
+        return;
+      }
+      const resolved = result.media?.find((item) => item.id === result.asset?.id);
+      const next: Side = {
+        ...side,
+        link: result.sourceUrl || side.link,
+        title: side.title || result.asset.name.replace(/\.[^.]+$/, "").slice(0, 24),
+        mediaId: result.asset.id,
+        mediaName: result.asset.name,
+        previewUrl: resolved?.previewUrl ?? null,
+        duration: result.asset.durationSec || 8,
+      };
+      if (which === "face") setFace(next);
+      else setGame(next);
+      setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function add(which: "face" | "game") {
     setBusy(true);
     setMessage("");
@@ -101,6 +143,7 @@ export function SplitStudio({
       const resolved = result.media?.find((item) => item.id === result.asset?.id);
       const side: Side = {
         title: result.asset.name.replace(/\.[^.]+$/, "").slice(0, 24),
+        link: which === "face" ? face.link : game.link,
         mediaId: result.asset.id,
         mediaName: result.asset.name,
         previewUrl: resolved?.previewUrl ?? null,
@@ -108,6 +151,7 @@ export function SplitStudio({
       };
       if (which === "face") setFace(side);
       else setGame(side);
+      if (result.workingCopy) setMessage("Working copy is on this computer.");
     } finally {
       setBusy(false);
     }
@@ -129,7 +173,10 @@ export function SplitStudio({
         return;
       }
       const length = Math.min(12, Math.max(face.duration || 8, game.duration || 0, 3));
-      const regions = applyDualShare(created.flick.regions, arrangement, topShare);
+      const regions =
+        preset === "custom"
+          ? applyDualShare(created.flick.regions, arrangement, topShare)
+          : applyDualLayout(created.flick.regions, arrangement, preset);
       const tracks = created.flick.tracks.map((track) => {
         if (track.id === DUAL_FACE) return { ...track, muted: !faceHeard };
         if (track.id === DUAL_GAME) return { ...track, muted: !gameHeard };
@@ -146,6 +193,7 @@ export function SplitStudio({
               outSec: Math.min(length, face.duration || length),
               label: face.title || "Face",
               line: face.title || undefined,
+              sourceUrl: face.link.trim() || undefined,
             }
           : null,
         game.mediaId
@@ -158,6 +206,7 @@ export function SplitStudio({
               outSec: Math.min(length, game.duration || length),
               label: game.title || "Gameplay",
               line: game.title || undefined,
+              sourceUrl: game.link.trim() || undefined,
             }
           : null,
       ].filter((item) => item !== null);
@@ -202,9 +251,11 @@ export function SplitStudio({
     const gameRegion = template.regions.find((item) => item.trackId === DUAL_GAME);
     if (faceRegion && gameRegion) {
       const faceOnTop = faceRegion.y <= gameRegion.y;
-      setArrangement(faceOnTop ? "face-top" : "game-top");
-      setTopShare(faceOnTop ? faceRegion.height : gameRegion.height);
-      setPreset("custom");
+      const nextArrangement = faceOnTop ? "face-top" : "game-top";
+      const share = faceOnTop ? faceRegion.height : gameRegion.height;
+      setArrangement(nextArrangement);
+      setTopShare(share);
+      setPreset(matchPreset(nextArrangement, share));
     }
     const faceClip = template.clips.find((item) => item.trackId === DUAL_FACE);
     const gameClip = template.clips.find((item) => item.trackId === DUAL_GAME);
@@ -228,7 +279,7 @@ export function SplitStudio({
           <HomeIcon />
           Home
         </button>
-        <strong>Split Screen</strong>
+        <strong>Dual video</strong>
         <button className="btn-gold" disabled={busy} onClick={() => void openTimeline()}>
           <TimelineIcon />
           Open timeline
@@ -243,6 +294,7 @@ export function SplitStudio({
               <button
                 key={item.id}
                 className={arrangement === item.id ? "choice on" : "choice"}
+                aria-pressed={arrangement === item.id}
                 onClick={() => chooseArrangement(item.id)}
               >
                 <span className="choice-radio" aria-hidden="true" />
@@ -251,12 +303,13 @@ export function SplitStudio({
               </button>
             ))}
           </div>
-          <p className="rail-label">Seam</p>
-          <div className="order-stack">
+          <p className="rail-label">Size</p>
+          <div className="order-stack" role="group" aria-label="Size">
             {PRESETS.map((item) => (
               <button
                 key={item.id}
                 className={preset === item.id ? "choice on" : "choice"}
+                aria-pressed={preset === item.id}
                 onClick={() => choosePreset(item.id)}
               >
                 <span className="choice-radio" aria-hidden="true" />
@@ -265,22 +318,8 @@ export function SplitStudio({
               </button>
             ))}
           </div>
-          <label className="stack">
-            <span className="rail-label">Top size {Math.round(topShare * 100)}%</span>
-            <input
-              className="seam-slider"
-              type="range"
-              min={0.2}
-              max={0.8}
-              step={0.01}
-              value={topShare}
-              onChange={(event) => {
-                setTopShare(Number(event.target.value));
-                setPreset("custom");
-              }}
-            />
-          </label>
-          <button className="btn" disabled={busy} onClick={() => void saveRecipe()}>
+          {preset === "custom" ? <p className="muted">This template uses its own seam. Pick Half, Face larger, or Gameplay larger.</p> : null}
+          <button className="btn desk-save" disabled={busy} onClick={() => void saveRecipe()}>
             Save template
           </button>
           {recipes.length ? (
@@ -296,11 +335,16 @@ export function SplitStudio({
           <p className="muted">Save keeps this seam, these words, and which side is heard. The videos stay in the channel.</p>
         </aside>
         <div className="stage-wrap">
-          <div className="phone">
-            <div className="split-preview" style={{ gridTemplateRows: `${topShare}fr ${roundShare(1 - topShare)}fr` }}>
-              <SidePreview side={top} label={topLabel} heard={arrangement === "face-top" ? faceHeard : gameHeard} />
-              <SidePreview side={bottom} label={bottomLabel} heard={arrangement === "face-top" ? gameHeard : faceHeard} />
+          <div className="phone-column">
+            <div className="phone">
+              <div className="split-preview" data-top-share={topShare} style={{ gridTemplateRows: `${topShare}fr ${roundShare(1 - topShare)}fr` }}>
+                <SidePreview side={top} label={topLabel} heard={arrangement === "face-top" ? faceHeard : gameHeard} />
+                <SidePreview side={bottom} label={bottomLabel} heard={arrangement === "face-top" ? gameHeard : faceHeard} />
+              </div>
             </div>
+            <p className="desk-share">
+              {topLabel} {Math.round(topShare * 100)}% · {bottomLabel} {Math.round((1 - topShare) * 100)}%
+            </p>
           </div>
         </div>
         <aside className="inspector stack rank-inspector">
@@ -313,15 +357,31 @@ export function SplitStudio({
               <PersonIcon />
             </span>
             <div className="clip-card-main">
-              <span>{face.mediaName || "Add face clip"}</span>
-              <input
-                className="field"
-                value={face.title}
-                placeholder="Words on the face"
-                onChange={(event) => setFace((side) => ({ ...side, title: event.target.value }))}
-              />
+              <strong className="clip-kind">Face</strong>
+              <span className="clip-file">{face.mediaName || "No clip yet"}</span>
+              <label className="stack desk-words">
+                <span>Words on the face</span>
+                <input
+                  className="field"
+                  value={face.title}
+                  placeholder="On the face"
+                  onChange={(event) => setFace((side) => ({ ...side, title: event.target.value }))}
+                />
+              </label>
+              <span className="link-line">
+                <input
+                  className="field"
+                  value={face.link}
+                  placeholder="Paste a link"
+                  onChange={(event) => setFace((side) => ({ ...side, link: event.target.value }))}
+                />
+                <button className="btn-small btn" disabled={busy} onClick={() => void getSide("face")}>
+                  Get
+                </button>
+              </span>
               <span className="clip-sound">
                 <SpeakerIcon />
+                <span className="clip-sound-word">Sound</span>
                 <button
                   type="button"
                   className={faceHeard ? "switch on" : "switch"}
@@ -332,24 +392,43 @@ export function SplitStudio({
                 />
               </span>
             </div>
-            <button className="plus" disabled={busy} aria-label="Add face clip" onClick={() => void add("face")}>
-              +
-            </button>
+            <span className="clip-add">
+              <button className="plus" disabled={busy} aria-label="Add face clip" onClick={() => void add("face")}>
+                +
+              </button>
+              <span>Add</span>
+            </span>
           </div>
           <div className="clip-card">
             <span className="clip-badge game" aria-hidden="true">
               <GameIcon />
             </span>
             <div className="clip-card-main">
-              <span>{game.mediaName || "Add gameplay clip"}</span>
-              <input
-                className="field"
-                value={game.title}
-                placeholder="Words on the gameplay"
-                onChange={(event) => setGame((side) => ({ ...side, title: event.target.value }))}
-              />
+              <strong className="clip-kind">Gameplay</strong>
+              <span className="clip-file">{game.mediaName || "No clip yet"}</span>
+              <label className="stack desk-words">
+                <span>Words on the gameplay</span>
+                <input
+                  className="field"
+                  value={game.title}
+                  placeholder="On the gameplay"
+                  onChange={(event) => setGame((side) => ({ ...side, title: event.target.value }))}
+                />
+              </label>
+              <span className="link-line">
+                <input
+                  className="field"
+                  value={game.link}
+                  placeholder="Paste a link"
+                  onChange={(event) => setGame((side) => ({ ...side, link: event.target.value }))}
+                />
+                <button className="btn-small btn" disabled={busy} onClick={() => void getSide("game")}>
+                  Get
+                </button>
+              </span>
               <span className="clip-sound">
                 <SpeakerIcon />
+                <span className="clip-sound-word">Sound</span>
                 <button
                   type="button"
                   className={gameHeard ? "switch on" : "switch"}
@@ -360,9 +439,12 @@ export function SplitStudio({
                 />
               </span>
             </div>
-            <button className="plus" disabled={busy} aria-label="Add gameplay clip" onClick={() => void add("game")}>
-              +
-            </button>
+            <span className="clip-add">
+              <button className="plus" disabled={busy} aria-label="Add gameplay clip" onClick={() => void add("game")}>
+                +
+              </button>
+              <span>Add</span>
+            </span>
           </div>
           <p className="muted tiny">Both clips are heard. Turn a sound off if you only want the other.</p>
         </aside>
@@ -373,8 +455,9 @@ export function SplitStudio({
 
 function SidePreview({ side, label, heard }: { side: Side; label: string; heard: boolean }) {
   return (
-    <div className="split-side">
+    <div className={label === "Face" ? "split-side is-face" : "split-side is-game"}>
       {side.previewUrl ? <video src={side.previewUrl} autoPlay playsInline muted={!heard} /> : <span>{label}</span>}
+      <span className="split-side-label">{label}</span>
     </div>
   );
 }
@@ -440,7 +523,7 @@ function TimelineIcon() {
   return (
     <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
       <rect x="1.2" y="2.2" width="9" height="7" rx="1.4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="5.2" y="6.2" width="9" height="7" rx="1.4" fill="#e8b423" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="5.2" y="6.2" width="9" height="7" rx="1.4" fill="#fffdf8" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }
