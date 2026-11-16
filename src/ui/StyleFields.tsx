@@ -62,14 +62,14 @@ export function StyleFields({
         </select>
       </label>
       <label className="stack">
-        <span>Line size</span>
+        <span>Caption size</span>
         <span className="stroke-line">
           <input
             type="range"
             min={LINE_SIZE_MIN}
             max={LINE_SIZE_MAX}
             value={size}
-            aria-label="Line size"
+            aria-label="Caption size"
             onChange={(event) => onLineSize(Number(event.target.value))}
           />
           <input
@@ -78,20 +78,20 @@ export function StyleFields({
             min={LINE_SIZE_MIN}
             max={LINE_SIZE_MAX}
             value={size}
-            aria-label="Line size amount"
+            aria-label="Caption size amount"
             onChange={(event) => onLineSize(Number(event.target.value) || LINE_SIZE_MIN)}
           />
         </span>
       </label>
       <label className="stack">
-        <span>Line color</span>
+        <span>Caption color</span>
         <span className="color-line">
-          <input type="color" value={swatch} aria-label="Line color" onChange={(event) => onLineColor(event.target.value)} />
+          <input type="color" value={swatch} aria-label="Caption color" onChange={(event) => onLineColor(event.target.value)} />
           <input
             className="field hex"
             spellCheck={false}
             value={(lineColor?.trim() || swatch).toUpperCase()}
-            aria-label="Line color hex"
+            aria-label="Caption color hex"
             onChange={(event) => {
               const next = event.target.value.trim();
               onLineColor(next.startsWith("#") ? next : `#${next}`);
@@ -115,13 +115,13 @@ export function StyleFields({
         </span>
       </label>
       <label className="stack">
-        <span>Paste lines</span>
+        <span>Paste captions</span>
         <textarea
           className="field"
           rows={3}
           value={pasted}
-          placeholder="One line per clip"
-          aria-label="Paste lines"
+          placeholder="One caption per clip"
+          aria-label="Paste captions"
           onChange={(event) => onPasted(event.target.value)}
         />
       </label>

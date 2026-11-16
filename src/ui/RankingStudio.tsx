@@ -124,6 +124,7 @@ export function RankingStudio({
   const [color, setColor] = useState("#e2b340");
   const [stroke, setStroke] = useState(6);
   const [showRank, setShowRank] = useState(true);
+  const [showCaptions, setShowCaptions] = useState(true);
   const [font, setFont] = useState("Segoe UI");
   const [lineSize, setLineSize] = useState(72);
   const [lineColor, setLineColor] = useState("#ffffff");
@@ -406,6 +407,7 @@ export function RankingStudio({
     base.accentWords = accentWords;
     base.titleStroke = stroke;
     base.showRank = showRank;
+    base.showCaptions = showCaptions;
     base.titleFont = storedTitleFont(font);
     base.lineColor = storedLineColor(lineColor);
     base.lineSize = storedLineSize(lineSize);
@@ -424,6 +426,7 @@ export function RankingStudio({
     if (template.accentWords !== undefined) setAccentWords(template.accentWords);
     if (template.titleStroke !== undefined) setStroke(template.titleStroke);
     if (template.showRank !== undefined) setShowRank(template.showRank);
+    setShowCaptions(template.showCaptions !== false);
     setFont(titleFontOf(template.titleFont));
     setLineSize(lineSizeOf(template.lineSize));
     setLineColor(template.lineColor && /^#[0-9a-fA-F]{6}$/.test(template.lineColor) ? template.lineColor : "#ffffff");
@@ -673,6 +676,7 @@ export function RankingStudio({
         accentWords,
         titleStroke: stroke,
         showRank,
+        showCaptions,
         titleFont: storedTitleFont(font),
         lineColor: storedLineColor(lineColor),
         lineSize: storedLineSize(lineSize),
@@ -842,17 +846,19 @@ export function RankingStudio({
                 #{slot?.rank}
               </div>
             ) : null}
-            <div
-              className="phone-clip"
-              style={{
-                fontFamily: titleFontFamily(font),
-                color: /^#[0-9a-fA-F]{6}$/.test(lineColor) ? lineColor : "#fff",
-                fontSize: Math.round(lineSizeOf(lineSize) * 0.36),
-                WebkitTextStroke: `${stroke}px #111`,
-              }}
-            >
-              {slot?.title || "Clip title"}
-            </div>
+            {showCaptions && slot?.title ? (
+              <div
+                className="phone-clip"
+                style={{
+                  fontFamily: titleFontFamily(font),
+                  color: /^#[0-9a-fA-F]{6}$/.test(lineColor) ? lineColor : "#fff",
+                  fontSize: Math.round(lineSizeOf(lineSize) * 0.36),
+                  WebkitTextStroke: `${stroke}px #111`,
+                }}
+              >
+                {slot.title}
+              </div>
+            ) : null}
           </div>
           <div className="desk-play">
             <button type="button" className="btn-gold" onClick={playRanking}>
@@ -897,6 +903,10 @@ export function RankingStudio({
               <span>Show the rank number</span>
               <button type="button" className={showRank ? "switch on" : "switch"} role="switch" aria-checked={showRank} onClick={() => setShowRank((value) => !value)} />
             </div>
+            <div className="toggle-line">
+              <span>Show captions</span>
+              <button type="button" className={showCaptions ? "switch on" : "switch"} role="switch" aria-checked={showCaptions} aria-label="Show captions" onClick={() => setShowCaptions((value) => !value)} />
+            </div>
           </div>
           <WhichClip
             clips={assistClips}
@@ -940,7 +950,7 @@ export function RankingStudio({
             lineColor={lineColor}
             warmth={warmth}
             pasted={pasted}
-            pasteHint="One line per slot, from the selected slot down."
+            pasteHint="One caption per slot, from the selected slot down."
             onFont={setFont}
             onLineSize={(size) => setLineSize(lineSizeOf(size))}
             onLineColor={setLineColor}
@@ -958,8 +968,8 @@ export function RankingStudio({
               </div>
               {slot.mediaName ? <p className="file-note">{slot.mediaName}</p> : null}
               <label className="stack">
-                <span>Clip title</span>
-                <input className="field" value={slot.title} onChange={(event) => patch({ title: event.target.value })} />
+                <span>Caption</span>
+                <input className="field" aria-label="Caption" value={slot.title} onChange={(event) => patch({ title: event.target.value })} />
               </label>
               <label className="stack">
                 <span>Link</span>

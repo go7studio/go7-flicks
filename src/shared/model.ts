@@ -96,6 +96,7 @@ export type Flick = {
   accentWords?: string;
   titleStroke?: number;
   showRank?: boolean;
+  showCaptions?: boolean;
   titleFont?: string;
   lineColor?: string;
   lineSize?: number;
@@ -131,6 +132,7 @@ export type Template = {
   accentWords?: string;
   titleStroke?: number;
   showRank?: boolean;
+  showCaptions?: boolean;
   titleFont?: string;
   lineColor?: string;
   lineSize?: number;

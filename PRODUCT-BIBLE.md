@@ -164,7 +164,7 @@ Both tracks start unmuted. The phone on the desk plays a side when that side is 
 
 ### Text, captions, and kinetic type
 
-- **In the app.** The ranking headline, the highlight words, the stroke, the rank numeral, the clip title or spoken line drawn by `FlickComposition`, the font, the line size, the line color, and the warmth. On the canvas, the line is a text field on the selected cut. Paste lines fills that cut and the cuts after it on the same track, one line each.
+- **In the app.** Captions are the words on the picture for the clip that is playing. On the ranking desk that field is Caption, Paste captions fills the slots, and Show captions turns them on or off. On the canvas the same words are the Caption field, with the same switch. The headline, the highlight words, the stroke, the rank numeral, the font, the caption size, the caption color, and the warmth stay. Write line still writes that caption. Paste captions fills the selected cut and the cuts after it on the same track, one caption each.
 - **Next.** A sound catalog, and a hit on top of the music file. One local music file is already the audio path. A second sound would be its own control, so it stays off this screen.
 - **In the app, off the first screen.** Text Story opens a blank canvas. That card comes off the home. The line stays on the canvas.
 - **Next.** Kinetic captions, emoji pops, a black plate, fade and bounce, word-level captions, and a caption lane that can delete a word.

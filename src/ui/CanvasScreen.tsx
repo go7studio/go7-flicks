@@ -349,6 +349,7 @@ export function CanvasScreen({
       accentWords: flick.accentWords,
       titleStroke: flick.titleStroke,
       showRank: flick.showRank,
+      showCaptions: flick.showCaptions,
       titleFont: flick.titleFont,
       lineColor: flick.lineColor,
       lineSize: flick.lineSize,
@@ -865,7 +866,7 @@ export function CanvasScreen({
             lineColor={flick.lineColor}
             warmth={flick.pictureWarmth}
             pasted={pasted}
-            pasteHint="One line per cut, from the selected cut forward."
+            pasteHint="One caption per cut, from the selected cut forward."
             onFont={(face) => edit({ ...flick, titleFont: storedTitleFont(face) })}
             onLineSize={(size) => edit({ ...flick, lineSize: lineSizeOf(size) }, "replace")}
             onLineColor={(next) => edit({ ...flick, lineColor: next })}
@@ -873,6 +874,17 @@ export function CanvasScreen({
             onPasted={setPasted}
             onPaste={pasteLines}
           />
+          <div className="toggle-line">
+            <span>Show captions</span>
+            <button
+              type="button"
+              className={flick.showCaptions === false ? "switch" : "switch on"}
+              role="switch"
+              aria-checked={flick.showCaptions !== false}
+              aria-label="Show captions"
+              onClick={() => edit({ ...flick, showCaptions: flick.showCaptions === false })}
+            />
+          </div>
           <WhichClip
             clips={flick.clips.flatMap((clip): AssistClip[] => {
               const line = spokenLine(clip.line);
@@ -958,10 +970,11 @@ export function CanvasScreen({
                 />
               </label>
               <label className="stack">
-                <span>Line</span>
+                <span>Caption</span>
                 <textarea
                   className="field"
                   rows={3}
+                  aria-label="Caption"
                   value={selected.line ?? ""}
                   onChange={(event) =>
                     edit({

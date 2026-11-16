@@ -162,6 +162,7 @@ async function flickProps(dir: string, channel: ChannelFile, flick: Flick, previ
     accentWords: flick.accentWords,
     titleStroke: flick.titleStroke,
     showRank: flick.showRank,
+    showCaptions: flick.showCaptions,
     titleFont: flick.titleFont,
     lineColor: flick.lineColor,
     lineSize: flick.lineSize,

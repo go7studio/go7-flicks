@@ -32,6 +32,7 @@ export type FlickProps = {
   accentWords?: string;
   titleStroke?: number;
   showRank?: boolean;
+  showCaptions?: boolean;
   titleFont?: string;
   lineColor?: string;
   lineSize?: number;
@@ -57,7 +58,7 @@ export const FlickComposition = (props: FlickProps) => {
   const active = regions
     .map((region) => props.clips.find((clip) => clip.trackId === region.trackId && inside(clip, time)))
     .find(Boolean);
-  const caption = spokenLine(active?.line);
+  const caption = props.showCaptions === false ? "" : spokenLine(active?.line);
   const rank = props.showRank === false ? "" : rankNumber(active?.label);
   const Picture = props.preview ? Video : OffthreadVideo;
   const wash = warmthWash(props.pictureWarmth);

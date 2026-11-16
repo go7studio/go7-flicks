@@ -298,6 +298,7 @@ function sanitizeFlick(flick: Flick): Flick {
     accentWords: flick.accentWords?.trim() || undefined,
     titleStroke: Number.isFinite(flick.titleStroke) ? flick.titleStroke : undefined,
     showRank: flick.showRank,
+    showCaptions: flick.showCaptions === false ? false : undefined,
     titleFont: storedTitleFont(flick.titleFont),
     lineColor: storedLineColor(flick.lineColor),
     lineSize: storedLineSize(flick.lineSize),
