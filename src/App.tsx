@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { CanvasScreen } from "./ui/CanvasScreen";
 import { ChannelScreen } from "./ui/ChannelScreen";
 import { ConnectionsScreen } from "./ui/ConnectionsScreen";
@@ -11,8 +11,8 @@ export type Route =
   | { name: "connections"; back: Route }
   | { name: "channel"; dir: string }
   | { name: "canvas"; dir: string; flickId: string }
-  | { name: "ranking" }
-  | { name: "split" };
+  | { name: "ranking"; dir?: string; flickId?: string }
+  | { name: "split"; dir?: string; flickId?: string };
 
 export function App() {
   const [route, setRoute] = useState<Route>({ name: "home" });
@@ -44,22 +44,27 @@ export function App() {
     );
   }
   if (route.name === "ranking") {
-    return <RankingStudio onBack={() => setRoute({ name: "home" })} onOpen={(dir, flickId) => setRoute({ name: "canvas", dir, flickId })} />;
-  }
-  if (route.name === "split") {
-    return <SplitStudio onBack={() => setRoute({ name: "home" })} onOpen={(dir, flickId) => setRoute({ name: "canvas", dir, flickId })} />;
-  }
-  if (route.name === "canvas") {
     return (
-      <CanvasScreen
-        dir={route.dir}
+      <RankingStudio
+        onBack={() => setRoute({ name: "home" })}
+        onOpen={(dir, flickId) => setRoute({ name: "canvas", dir, flickId })}
+        channelDir={route.dir}
         flickId={route.flickId}
-        onBack={() => setRoute({ name: "channel", dir: route.dir })}
-        onHome={() => setRoute({ name: "home", nav: "home" })}
-        onLibrary={() => setRoute({ name: "home", nav: "library" })}
-        onConnections={() => setRoute({ name: "connections", back: route })}
       />
     );
+  }
+  if (route.name === "split") {
+    return (
+      <SplitStudio
+        onBack={() => setRoute({ name: "home" })}
+        onOpen={(dir, flickId) => setRoute({ name: "canvas", dir, flickId })}
+        channelDir={route.dir}
+        flickId={route.flickId}
+      />
+    );
+  }
+  if (route.name === "canvas") {
+    return <CanvasRoute route={route} setRoute={setRoute} />;
   }
   return (
     <HomeScreen
@@ -69,6 +74,51 @@ export function App() {
       onRanking={() => setRoute({ name: "ranking" })}
       onSplit={() => setRoute({ name: "split" })}
       onConnections={() => setRoute({ name: "connections", back: route })}
+    />
+  );
+}
+
+function CanvasRoute({ route, setRoute }: { route: Extract<Route, { name: "canvas" }>; setRoute: (next: Route) => void }) {
+  const [templateId, setTemplateId] = useState<string | undefined>();
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancel = false;
+    setLoaded(false);
+    void window.flicks!.readFlick(route.dir, route.flickId).then((result) => {
+      if (cancel || !result.ok) return;
+      setTemplateId(result.flick?.templateId);
+      setLoaded(true);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [route.dir, route.flickId]);
+
+  function openDesk(id: string | undefined) {
+    if (id === "builtin-ranking") setRoute({ name: "ranking", dir: route.dir, flickId: route.flickId });
+    else if (id === "builtin-dual" || id === "builtin-split") setRoute({ name: "split", dir: route.dir, flickId: route.flickId });
+  }
+
+  function onOpenDesk() {
+    if (loaded) {
+      openDesk(templateId);
+      return;
+    }
+    void window.flicks!.readFlick(route.dir, route.flickId).then((result) => openDesk(result.flick?.templateId));
+  }
+
+  return (
+    <CanvasScreen
+      {...({
+        dir: route.dir,
+        flickId: route.flickId,
+        onBack: () => setRoute({ name: "channel", dir: route.dir }),
+        onHome: () => setRoute({ name: "home", nav: "home" }),
+        onLibrary: () => setRoute({ name: "home", nav: "library" }),
+        onConnections: () => setRoute({ name: "connections", back: route }),
+        onOpenDesk,
+      } as ComponentProps<typeof CanvasScreen>)}
     />
   );
 }

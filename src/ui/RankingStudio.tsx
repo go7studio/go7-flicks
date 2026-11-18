@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
+  accentOnPaper,
   assignLinesInOrder,
   builtinTemplates,
   flickFromTemplate,
+  inkOnPaper,
   importedLines,
   lineSizeOf,
   playbackOrder,
   rankingClipRange,
   shelfName,
   shuffleIds,
+  spokenLine,
   storedLineColor,
   storedLineSize,
   storedTitleFont,
@@ -18,9 +21,12 @@ import {
   titleFontOf,
   warmthOf,
   warmthWash,
+  fullFrame,
   type PlaybackMode,
 } from "../shared/canvas";
-import { round3, uid, type Flick, type Template } from "../shared/model";
+import { round3, uid, type Clip, type Flick, type Template } from "../shared/model";
+import type { ResolvedMedia } from "../shared/api";
+import { captionFromFile, headlineFromFlick, openDeskFlick, titleFromClip } from "../remotion/FlickComposition";
 import type { AssistClip } from "../shared/assist";
 import { placeFoundClips, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
 import { whenPhrase } from "../shared/when";
@@ -42,6 +48,8 @@ type Slot = {
   previewUrl: string | null;
   focus: number;
 };
+
+const RANKING_HEADLINE = "Ranking the funniest\ncartoon moments";
 
 function makeSlots(count: number): Slot[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -98,6 +106,80 @@ function clampIn(next: number, outSec: number, duration: number): number {
   return round3(Math.min(Math.max(0, next), Math.max(0, end - 0.1)));
 }
 
+function folderName(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  const parts = trimmed.split(/[\\/]/);
+  return parts[parts.length - 1] || trimmed;
+}
+
+function deskStorageKey(channelDir?: string): string {
+  return `go7-flicks-desk:${channelDir || "none"}:ranking`;
+}
+
+type RankingDraft = {
+  headline?: string;
+  accentWords?: string;
+  color?: string;
+  stroke?: number;
+  showRank?: boolean;
+  showCaptions?: boolean;
+  font?: string;
+  lineSize?: number;
+  lineColor?: string;
+  warmth?: number;
+  pasted?: string;
+  subject?: string;
+  playback?: PlaybackMode;
+  orderIds?: string[];
+  slots?: Slot[];
+  selected?: number;
+  dir?: string | null;
+};
+
+function readRankingDraft(channelDir?: string): RankingDraft | null {
+  try {
+    if (typeof sessionStorage === "undefined") return null;
+    const raw = sessionStorage.getItem(deskStorageKey(channelDir));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as RankingDraft;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.slots)) return null;
+    if (!parsed.slots.every((item) => item && typeof item.id === "string" && typeof item.title === "string")) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function slotsFromFlick(flick: Flick, media: ResolvedMedia[]): Slot[] {
+  const ranked = flick.clips
+    .filter((clip) => clip.label !== "Loop" && clip.trackId !== "track-bottom")
+    .slice()
+    .sort((a, b) => a.startSec - b.startSec);
+  const count = ranked.length > 7 ? ranked.length : Math.min(7, Math.max(5, ranked.length || 5));
+  return Array.from({ length: count }, (_, index) => {
+    const clip = ranked[index];
+    const blank = makeSlots(1)[0];
+    if (!clip) return { ...blank, rank: count - index };
+    const asset = media.find((item) => item.id === clip.mediaId);
+    const rankMatch = /^#(\d+)$/.exec(clip.label);
+    const duration = asset && asset.durationSec > 0 ? asset.durationSec : 0;
+    return {
+      id: uid(),
+      rank: rankMatch ? Number(rankMatch[1]) : Math.max(1, ranked.length - index),
+      title: clip.line ?? "",
+      note: clip.sourceUrl ?? "",
+      inSec: clip.inSec,
+      outSec: clip.outSec,
+      duration,
+      mediaId: clip.mediaId,
+      mediaName: asset?.name ?? "",
+      madeAt: asset?.madeAt,
+      previewUrl: asset?.previewUrl ?? null,
+      focus: typeof clip.focus === "number" ? clip.focus : 0.5,
+    };
+  });
+}
+
 function parseClock(value: string): number | null {
   const trimmed = value.trim();
   const match = trimmed.match(/^(\d+):(\d{1,2})(?:\.(\d{1,2}))?$/);
@@ -114,12 +196,17 @@ function parseClock(value: string): number | null {
 export function RankingStudio({
   onBack,
   onOpen,
+  channelDir,
+  flickId,
 }: {
   onBack: () => void;
   onOpen: (dir: string, flickId: string) => void;
+  channelDir?: string;
+  flickId?: string;
 }) {
-  const [dir, setDir] = useState<string | null>(null);
-  const [headline, setHeadline] = useState("Ranking the funniest\ncartoon moments");
+  const [dir, setDir] = useState<string | null>(channelDir ?? null);
+  const [announced, setAnnounced] = useState(() => (channelDir ? folderName(channelDir) : ""));
+  const [headline, setHeadline] = useState(RANKING_HEADLINE);
   const [accentWords, setAccentWords] = useState("funniest");
   const [color, setColor] = useState("#e2b340");
   const [stroke, setStroke] = useState(6);
@@ -149,6 +236,162 @@ export function RankingStudio({
   const handingOff = useRef(false);
   const span = useRef<"file" | "cut">("file");
   const readySlot = useRef<string | null>(null);
+  const keepDraft = useRef(true);
+  const draftKey = deskStorageKey(channelDir);
+  const [boundKey, setBoundKey] = useState<string | null>(null);
+  const folderLabel = announced || (dir ? folderName(dir) : "");
+
+  useEffect(() => {
+    if (channelDir) {
+      setDir(channelDir);
+      setAnnounced(folderName(channelDir));
+      return;
+    }
+    let cancel = false;
+    void window.flicks?.recent().then((rows) => {
+      if (cancel) return;
+      const first = rows[0];
+      if (first?.path) {
+        setDir((current) => current ?? first.path);
+        setAnnounced((current) => current || first.name || folderName(first.path));
+        return;
+      }
+      setAnnounced((current) => current || "Ranking");
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [channelDir]);
+
+  useEffect(() => {
+    let cancel = false;
+    keepDraft.current = true;
+    if (flickId && channelDir && window.flicks) {
+      void window.flicks.readFlick(channelDir, flickId).then((result) => {
+        if (cancel) return;
+        if (result.ok && result.flick) {
+          const flick = result.flick;
+          setHeadline(headlineFromFlick(flick.headline, RANKING_HEADLINE));
+          if (flick.headlineColor) setColor(flick.headlineColor);
+          if (flick.accentWords !== undefined) setAccentWords(flick.accentWords);
+          if (flick.titleStroke !== undefined) setStroke(flick.titleStroke);
+          setShowRank(flick.showRank !== false);
+          setShowCaptions(flick.showCaptions !== false);
+          setFont(titleFontOf(flick.titleFont));
+          setLineSize(lineSizeOf(flick.lineSize));
+          setLineColor(flick.lineColor && /^#[0-9a-fA-F]{6}$/.test(flick.lineColor) ? flick.lineColor : "#ffffff");
+          setWarmth(warmthOf(flick.pictureWarmth));
+          setSlots(slotsFromFlick(flick, result.media ?? []));
+          setPlayback("listed");
+          setOrderIds([]);
+          setSelected(0);
+          setDir(channelDir);
+        } else if (result.message) {
+          setMessage(result.message);
+        }
+        if (!cancel) setBoundKey(draftKey);
+      });
+      return () => {
+        cancel = true;
+      };
+    }
+    const stored = readRankingDraft(channelDir);
+    if (stored) {
+      if (typeof stored.headline === "string") setHeadline(stored.headline);
+      if (typeof stored.accentWords === "string") setAccentWords(stored.accentWords);
+      if (typeof stored.color === "string") setColor(stored.color);
+      if (typeof stored.stroke === "number") setStroke(stored.stroke);
+      if (typeof stored.showRank === "boolean") setShowRank(stored.showRank);
+      if (typeof stored.showCaptions === "boolean") setShowCaptions(stored.showCaptions);
+      if (typeof stored.font === "string") setFont(stored.font);
+      if (typeof stored.lineSize === "number") setLineSize(stored.lineSize);
+      if (typeof stored.lineColor === "string") setLineColor(stored.lineColor);
+      if (typeof stored.warmth === "number") setWarmth(stored.warmth);
+      if (typeof stored.pasted === "string") setPasted(stored.pasted);
+      if (typeof stored.subject === "string") setSubject(stored.subject);
+      if (stored.playback === "countdown" || stored.playback === "listed" || stored.playback === "skip" || stored.playback === "shuffle") {
+        setPlayback(stored.playback);
+      }
+      if (Array.isArray(stored.orderIds)) setOrderIds(stored.orderIds.filter((item) => typeof item === "string"));
+      if (stored.slots?.length) {
+        setSlots(
+          stored.slots.map((item) => ({
+            id: item.id,
+            rank: typeof item.rank === "number" ? item.rank : 1,
+            title: item.title ?? "",
+            note: typeof item.note === "string" ? item.note : "",
+            inSec: typeof item.inSec === "number" ? item.inSec : 0,
+            outSec: typeof item.outSec === "number" ? item.outSec : 3,
+            duration: typeof item.duration === "number" ? item.duration : 0,
+            mediaId: typeof item.mediaId === "string" ? item.mediaId : null,
+            mediaName: typeof item.mediaName === "string" ? item.mediaName : "",
+            madeAt: typeof item.madeAt === "string" ? item.madeAt : undefined,
+            previewUrl: typeof item.previewUrl === "string" ? item.previewUrl : null,
+            focus: typeof item.focus === "number" ? item.focus : 0.5,
+          })),
+        );
+      }
+      if (typeof stored.selected === "number") setSelected(stored.selected);
+      if (!channelDir && stored.dir) {
+        setDir(stored.dir);
+        setAnnounced(folderName(stored.dir));
+      }
+    }
+    setBoundKey(draftKey);
+    return () => {
+      cancel = true;
+    };
+  }, [channelDir, draftKey, flickId]);
+
+  useEffect(() => {
+    if (boundKey !== draftKey || !keepDraft.current) return;
+    try {
+      if (typeof sessionStorage === "undefined") return;
+      const payload: RankingDraft = {
+        headline,
+        accentWords,
+        color,
+        stroke,
+        showRank,
+        showCaptions,
+        font,
+        lineSize,
+        lineColor,
+        warmth,
+        pasted,
+        subject,
+        playback,
+        orderIds,
+        slots,
+        selected,
+        dir: channelDir || dir,
+      };
+      sessionStorage.setItem(draftKey, JSON.stringify(payload));
+    } catch {
+      // The desk still works when the browser refuses the draft.
+    }
+  }, [
+    boundKey,
+    draftKey,
+    channelDir,
+    dir,
+    headline,
+    accentWords,
+    color,
+    stroke,
+    showRank,
+    showCaptions,
+    font,
+    lineSize,
+    lineColor,
+    warmth,
+    pasted,
+    subject,
+    playback,
+    orderIds,
+    slots,
+    selected,
+  ]);
 
   useEffect(() => {
     const video = preview.current;
@@ -439,7 +682,7 @@ export function RankingStudio({
         return {
           id: uid(),
           rank: rankMatch ? Number(rankMatch[1]) : ranked.length - index,
-          title: clip.line || (rankMatch ? "" : clip.label),
+          title: titleFromClip(clip),
           note: "",
           inSec: 0,
           outSec: Math.max(0.4, clip.outSec - clip.inSec),
@@ -460,14 +703,14 @@ export function RankingStudio({
   function pasteLines() {
     const lines = importedLines(pasted);
     if (!lines.length) {
-      setMessage("Paste one line per slot.");
+      setMessage("Paste one caption per slot.");
       return;
     }
     const ids = slots.map((item) => item.id);
     const startId = slots[selected]?.id ?? ids[0] ?? "";
     const assigned = assignLinesInOrder(ids, lines, startId);
     setSlots((rows) => rows.map((item) => (assigned.has(item.id) ? { ...item, title: assigned.get(item.id) ?? item.title } : item)));
-    setMessage(assigned.size === 1 ? "Put 1 line on the slots." : `Put ${assigned.size} lines on the slots.`);
+    setMessage(assigned.size === 1 ? "Put 1 caption on the slots." : `Put ${assigned.size} captions on the slots.`);
   }
 
   function move(step: number) {
@@ -492,13 +735,23 @@ export function RankingStudio({
   }
 
   async function ensureDir(): Promise<string | null> {
-    if (dir) return dir;
-    const recent = await window.flicks!.recent();
-    const existing = recent[0]?.path;
-    if (existing) {
-      setDir(existing);
-      return existing;
+    if (channelDir) {
+      setDir(channelDir);
+      setAnnounced(folderName(channelDir));
+      return channelDir;
     }
+    if (dir) {
+      setAnnounced(folderName(dir));
+      return dir;
+    }
+    const recent = await window.flicks!.recent();
+    const existing = recent[0];
+    if (existing?.path) {
+      setDir(existing.path);
+      setAnnounced(existing.name || folderName(existing.path));
+      return existing.path;
+    }
+    setAnnounced("Ranking");
     const parent = await window.flicks!.pickDirectory();
     if (!parent) return null;
     const created = await window.flicks!.createChannel(parent, "Ranking");
@@ -507,6 +760,7 @@ export function RankingStudio({
       return null;
     }
     setDir(created.dir);
+    setAnnounced(folderName(created.dir));
     return created.dir;
   }
 
@@ -588,7 +842,7 @@ export function RankingStudio({
         duration,
         inSec: 0,
         outSec: Math.min(4, Math.max(0.4, duration)),
-        title: current.title || result.asset.name.replace(/\.[^.]+$/, ""),
+        title: captionFromFile(current.title, result.asset.name),
         focus: 0.5,
         note: result.sourceUrl || current.note,
       });
@@ -621,7 +875,7 @@ export function RankingStudio({
         duration,
         inSec: 0,
         outSec: Math.min(4, Math.max(0.4, duration)),
-        title: current?.title || result.asset.name.replace(/\.[^.]+$/, ""),
+        title: captionFromFile(current?.title, result.asset.name),
         focus: 0.5,
       });
       if (result.workingCopy) setMessage("Working copy is on this computer.");
@@ -641,18 +895,31 @@ export function RankingStudio({
       const folder = await ensureDir();
       if (!folder) return;
       const name = headline.split("\n")[0]?.trim() || "Ranking";
-      const created = await window.flicks!.createFlick(folder, name, "builtin-ranking");
-      if (!created.ok || !created.flick) {
-        setMessage(created.message ?? "Could not open the timeline.");
-        return;
+      let existing: Flick | null = null;
+      if (flickId) {
+        const loaded = await window.flicks!.readFlick(folder, flickId);
+        if (!loaded.ok || !loaded.flick) {
+          setMessage(loaded.message ?? "Could not open the timeline.");
+          return;
+        }
+        existing = loaded.flick;
+      }
+      let shell = existing;
+      if (!shell) {
+        const created = await window.flicks!.createFlick(folder, name, "builtin-ranking");
+        if (!created.ok || !created.flick) {
+          setMessage(created.message ?? "Could not open the timeline.");
+          return;
+        }
+        shell = created.flick;
       }
       const ordered = playbackOrder(slots, playback, orderIds);
       let cursor = 0;
-      const clips = ordered
+      const rankClips: Clip[] = ordered
         .filter((item) => item.mediaId)
         .map((item) => {
           const range = rankingClipRange(item.inSec, item.outSec, item.duration);
-          const clip = {
+          const clip: Clip = {
             id: uid(),
             mediaId: item.mediaId,
             trackId: "track-top",
@@ -667,10 +934,24 @@ export function RankingStudio({
           cursor += range.outSec - range.inSec;
           return clip;
         });
-      const loop = created.flick.clips.find((clip) => clip.label === "Loop");
-      const flick: Flick = {
-        ...created.flick,
+      const deskClips: Clip[] = [...rankClips];
+      if (!existing) {
+        const loop = shell.clips.find((clip) => clip.label === "Loop");
+        if (loop) deskClips.push({ ...loop, id: uid(), startSec: 0, outSec: round3(cursor || 3) });
+      }
+      const outside = (existing ?? shell).clips.filter((clip) => clip.trackId !== "track-top");
+      const loopHasMedia = outside.some((clip) => (clip.trackId === "track-bottom" || clip.label === "Loop") && clip.mediaId);
+      const loopBare = !loopHasMedia && outside.some((clip) => clip.trackId === "track-bottom" || clip.label === "Loop");
+      const rankRegion =
+        shell.regions.find((region) => region.trackId === "track-top") ??
+        shell.regions.find((region) => region.id === "region-rank");
+      const regions = loopBare && rankRegion ? fullFrame(shell.regions, rankRegion.id) : shell.regions;
+      const plan = openDeskFlick(existing, {
         name,
+        editedTrackIds: ["track-top"],
+        clips: deskClips,
+        regions,
+        tracks: shell.tracks,
         headline,
         headlineColor: color,
         accentWords,
@@ -681,12 +962,32 @@ export function RankingStudio({
         lineColor: storedLineColor(lineColor),
         lineSize: storedLineSize(lineSize),
         pictureWarmth: storedWarmth(warmth),
-        clips: loop ? [...clips, { ...loop, id: uid(), startSec: 0, outSec: round3(cursor || 3) }] : clips,
-      };
+      });
+      const flick: Flick = plan.id
+        ? plan.flick
+        : {
+            ...shell,
+            ...plan.flick,
+            id: shell.id,
+            fps: shell.fps,
+            width: shell.width,
+            height: shell.height,
+            templateId: shell.templateId,
+            voiceRelative: undefined,
+            voiceStartSec: undefined,
+            musicId: undefined,
+            musicCredit: undefined,
+          };
       const saved = await window.flicks!.saveFlick(folder, flick);
       if (!saved.ok || !saved.flick) {
         setMessage(saved.message ?? "Could not save the ranking.");
         return;
+      }
+      keepDraft.current = false;
+      try {
+        sessionStorage.removeItem(draftKey);
+      } catch {
+        // Opening the timeline still stands when the draft cannot be cleared.
       }
       onOpen(folder, saved.flick.id);
     } finally {
@@ -709,6 +1010,7 @@ export function RankingStudio({
       },
     ];
   });
+  const phoneCaption = spokenLine(slot?.title, slot?.mediaName);
   const sequence = playbackOrder(slots, playback, orderIds);
   const playAt = new Map(sequence.map((item, index) => [item.id, index + 1]));
   const swatch = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#e2b340";
@@ -722,6 +1024,7 @@ export function RankingStudio({
           Home
         </button>
         <strong>Video ranking</strong>
+        {folderLabel ? <span className="timeline-hint">{folderLabel}</span> : null}
         <div className="timeline-open">
           <button className="btn-gold" disabled={busy} onClick={() => void openTimeline()}>
             <TimelineIcon />
@@ -762,7 +1065,9 @@ export function RankingStudio({
               >
                 <b>#{item.rank}</b>
                 <span className="slot-copy">
-                  <span className="slot-name">{item.mediaId ? item.title || item.mediaName || "Clip" : "Empty slot"}</span>
+                  <span className="slot-name">
+                    {item.mediaId ? item.title.trim() || (item.mediaName ? shelfName(item.mediaName).title : "") || "Clip" : "Empty slot"}
+                  </span>
                   {item.mediaId ? (
                     <span className="slot-time">
                       Cut {formatSpan(item.outSec - item.inSec)} · File {formatSpan(item.duration)}
@@ -819,10 +1124,6 @@ export function RankingStudio({
             tabIndex={0}
             aria-label={playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking"}
           >
-            <div className="phone-scene">
-              <span className="scene-path" />
-              <span className="scene-tree" />
-            </div>
             {slot?.previewUrl ? (
               <video
                 ref={preview}
@@ -834,29 +1135,34 @@ export function RankingStudio({
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
               />
-            ) : null}
+            ) : (
+              <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Add a clip"}</p>
+            )}
             {wash ? <div className="phone-warmth" style={{ background: wash }} /> : null}
-            {headline.trim() ? (
-              <div className="phone-title" style={{ fontFamily: titleFontFamily(font) }}>
+            {showRank ? (
+              <div className="phone-rank" style={{ fontFamily: titleFontFamily(font) }}>
+                {slot?.rank}
+              </div>
+            ) : null}
+            {headline.split("\n").some((line) => line.trim()) ? (
+              <div
+                className={showRank ? "phone-title" : "phone-title no-rank"}
+                style={{ fontFamily: titleFontFamily(font), whiteSpace: "pre-wrap" }}
+              >
                 {paint(headline, swatch, accentWords)}
               </div>
             ) : null}
-            {showRank ? (
-              <div className="phone-rank" style={{ fontFamily: titleFontFamily(font) }}>
-                #{slot?.rank}
-              </div>
-            ) : null}
-            {showCaptions && slot?.title ? (
+            {showCaptions && phoneCaption ? (
               <div
                 className="phone-clip"
                 style={{
                   fontFamily: titleFontFamily(font),
-                  color: /^#[0-9a-fA-F]{6}$/.test(lineColor) ? lineColor : "#fff",
-                  fontSize: Math.round(lineSizeOf(lineSize) * 0.36),
-                  WebkitTextStroke: `${stroke}px #111`,
+                  color: inkOnPaper(lineColor),
+                  fontSize: Math.max(15, Math.round(lineSizeOf(lineSize) * 0.28)),
+                  whiteSpace: "pre-wrap",
                 }}
               >
-                {slot.title}
+                {phoneCaption}
               </div>
             ) : null}
           </div>
@@ -931,6 +1237,7 @@ export function RankingStudio({
           </label>
           <label className="stack">
             <span>Title stroke</span>
+            <p className="muted tiny">Saved on the flick. The paper pill keeps the words clear.</p>
             <span className="stroke-line">
               <input type="range" min={0} max={12} value={stroke} aria-label="Title stroke" onChange={(event) => setStroke(Number(event.target.value))} />
               <input
@@ -1055,18 +1362,29 @@ function ClockField({ label, value, onCommit }: { label: string; value: number; 
 }
 
 function paint(text: string, color: string, words: string) {
-  const ink = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#e2b340";
+  const mark = accentOnPaper(color);
   const keys = words
     .split(",")
     .map((word) => word.trim().toLowerCase())
     .filter(Boolean);
   return text.split("\n").map((line, lineIndex) => (
     <div key={lineIndex}>
-      {line.split(/(\s+)/).map((part, index) => (
-        <span key={index} style={{ color: keys.some((key) => part.toLowerCase().includes(key)) ? ink : "#fff" }}>
-          {part}
-        </span>
-      ))}
+      {line.split(/(\s+)/).map((part, index) => {
+        const hit = keys.some((key) => part.toLowerCase().includes(key));
+        return (
+          <span
+            key={index}
+            style={{
+              color: hit ? mark.color : "#1c1915",
+              background: hit ? mark.background : undefined,
+              borderRadius: hit && mark.background ? 6 : undefined,
+              padding: hit && mark.background ? "0 4px" : undefined,
+            }}
+          >
+            {part}
+          </span>
+        );
+      })}
     </div>
   ));
 }

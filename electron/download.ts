@@ -34,25 +34,91 @@ export async function ytdlpPath(binDir: string): Promise<string> {
   return dest;
 }
 
+export type DownloadStep = "stored" | "preferred" | "fallback";
+
+const SKIP_EXT = new Set([".part", ".ytdl", ".json", ".jpg", ".jpeg", ".png", ".webp", ".vtt", ".srt"]);
+const FORMAT_FRAGMENT = /\.f\d+\.[^.]+$/i;
+
+/** A merged file can be kept. A .part file or an unmerged format fragment cannot. */
+export function isFinishedDownload(file: string): boolean {
+  const name = path.basename(file);
+  if (/\.part(?:$|\.)/i.test(name) || /\.ytdl$/i.test(name) || /\.temp\./i.test(name)) return false;
+  if (FORMAT_FRAGMENT.test(name)) return false;
+  const ext = path.extname(name).toLowerCase();
+  return Boolean(ext) && !SKIP_EXT.has(ext);
+}
+
+/** The finished mp4 wins. Partials and unmerged streams do not. */
+export function chooseFinishedDownload(names: string[]): string | null {
+  const ready = names.filter((name) => isFinishedDownload(name));
+  const mp4 = ready.filter((name) => {
+    const ext = path.extname(name).toLowerCase();
+    return ext === ".mp4" || ext === ".m4v";
+  });
+  return (mp4.length ? mp4 : ready)[0] ?? null;
+}
+
+/** A finished file already in the folder stays. A partial or a missing preferred format tries again. */
+export function downloadStep(existingFile: string | null, preferredFailed: boolean): DownloadStep {
+  if (existingFile && isFinishedDownload(existingFile)) return "stored";
+  return preferredFailed ? "fallback" : "preferred";
+}
+
+/** Prefer MP4, H.264, about 1080p, AAC. The fallback omits that sort so some file still comes back. */
+export function ytdlpDownloadArgs(input: {
+  ffmpegPath: string;
+  outputTemplate: string;
+  link: string;
+  preferred: boolean;
+}): string[] {
+  const args = [
+    "--no-playlist",
+    "--restrict-filenames",
+    "--no-overwrites",
+    "--ffmpeg-location",
+    path.dirname(input.ffmpegPath),
+    "-o",
+    input.outputTemplate,
+  ];
+  if (input.preferred) args.push("--merge-output-format", "mp4", "-S", "vcodec:h264,res:1080,acodec:m4a");
+  args.push(input.link);
+  return args;
+}
+
+export function searchArgs(target: string): string[] {
+  return [
+    "--flat-playlist",
+    "--dump-single-json",
+    "--skip-download",
+    "--no-warnings",
+    "--encoding",
+    "utf-8",
+    "--playlist-end",
+    "40",
+    target,
+  ];
+}
+
 export async function downloadClip(url: string, ffmpegPath: string, binDir: string): Promise<{ file: string; cleanup: () => void }> {
   const link = clipLink(url);
   const bin = await ytdlpPath(binDir);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "go7flicks-get-"));
   const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
+  const outputTemplate = path.join(dir, "%(title).80s.%(ext)s");
+  const run = (preferred: boolean) =>
+    exec(bin, ytdlpDownloadArgs({ ffmpegPath, outputTemplate, link, preferred }), {
+      timeout: 15 * 60 * 1000,
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+    });
   try {
-    await exec(
-      bin,
-      [
-        "--no-playlist",
-        "--restrict-filenames",
-        "--ffmpeg-location",
-        path.dirname(ffmpegPath),
-        "-o",
-        path.join(dir, "%(title).80s.%(ext)s"),
-        link,
-      ],
-      { timeout: 15 * 60 * 1000, maxBuffer: 20 * 1024 * 1024, windowsHide: true },
-    );
+    if (downloadStep(pickedFile(dir), false) === "preferred") {
+      try {
+        await run(true);
+      } catch {
+        if (downloadStep(pickedFile(dir), true) === "fallback") await run(false);
+      }
+    }
   } catch (error) {
     cleanup();
     throw new Error(toolMessage(error));
@@ -100,11 +166,12 @@ export async function searchSubject(subject: string, binDir: string): Promise<Su
 async function listSearch(bin: string, target: string): Promise<SubjectHit[]> {
   let result: { stdout: string };
   try {
-    result = await exec(
-      bin,
-      ["--flat-playlist", "--dump-single-json", "--skip-download", "--no-warnings", "--playlist-end", "40", target],
-      { timeout: 90_000, maxBuffer: 20 * 1024 * 1024, windowsHide: true, encoding: "utf8" },
-    );
+    result = await exec(bin, searchArgs(target), {
+      timeout: 90_000,
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+      encoding: "utf8",
+    });
   } catch (error) {
     throw new Error(toolMessage(error));
   }
@@ -116,13 +183,15 @@ async function listSearch(bin: string, target: string): Promise<SubjectHit[]> {
 }
 
 function pickedFile(dir: string): string | null {
-  const names = fs.readdirSync(dir).filter((name) => {
-    const ext = path.extname(name).toLowerCase();
-    return ext && ![".part", ".ytdl", ".json", ".jpg", ".jpeg", ".png", ".webp", ".vtt", ".srt"].includes(ext);
-  });
+  const names = fs.readdirSync(dir).filter((name) => isFinishedDownload(name));
   if (!names.length) return null;
-  names.sort((a, b) => fs.statSync(path.join(dir, b)).size - fs.statSync(path.join(dir, a)).size);
-  return path.join(dir, names[0]);
+  const mp4 = names.filter((name) => {
+    const ext = path.extname(name).toLowerCase();
+    return ext === ".mp4" || ext === ".m4v";
+  });
+  const pool = mp4.length ? mp4 : names;
+  pool.sort((a, b) => fs.statSync(path.join(dir, b)).size - fs.statSync(path.join(dir, a)).size);
+  return path.join(dir, pool[0]);
 }
 
 function toolMessage(error: unknown): string {

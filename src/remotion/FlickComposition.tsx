@@ -1,7 +1,7 @@
 import { AbsoluteFill, Audio, OffthreadVideo, Sequence, Video, useCurrentFrame, useVideoConfig } from "remotion";
-import { lineColorOf, lineSizeOf, spokenLine, titleFontFamily, visibleRegions, warmthWash } from "../shared/canvas";
+import { accentOnPaper, inkOnPaper, lineSizeOf, spokenLine, titleFontFamily, visibleRegions, warmthWash } from "../shared/canvas";
 import { VOICE_VOLUME, clipAudible, musicVolume } from "../shared/mix";
-import { type Region, type Track, clipDuration } from "../shared/model";
+import { type Clip, type Flick, type Region, type Track, clipDuration, storedVoiceStart } from "../shared/model";
 
 export type RenderClip = {
   id: string;
@@ -11,6 +11,8 @@ export type RenderClip = {
   outSec: number;
   label: string;
   line?: string;
+  /** The media file name. A caption that is only that name stays off the picture. */
+  fileName?: string;
   src?: string;
   focus?: number;
 };
@@ -37,6 +39,8 @@ export type FlickProps = {
   lineColor?: string;
   lineSize?: number;
   pictureWarmth?: number;
+  /** Seconds from the start of the flick before the voice begins. */
+  voiceStartSec?: number;
 };
 
 export const emptyFlickProps: FlickProps = {
@@ -48,6 +52,7 @@ export const emptyFlickProps: FlickProps = {
   tracks: [],
   clips: [],
   preview: false,
+  voiceStartSec: 0,
 };
 
 export const FlickComposition = (props: FlickProps) => {
@@ -58,11 +63,14 @@ export const FlickComposition = (props: FlickProps) => {
   const active = regions
     .map((region) => props.clips.find((clip) => clip.trackId === region.trackId && inside(clip, time)))
     .find(Boolean);
-  const caption = props.showCaptions === false ? "" : spokenLine(active?.line);
   const rank = props.showRank === false ? "" : rankNumber(active?.label);
+  const captions = new Map(
+    collectRegionLines(props.regions, props.clips, time, props.showCaptions).map((item) => [item.regionId, item.line]),
+  );
+  const voiceFrom = Math.max(0, Math.round(voiceStartOf(props) * fps));
   const Picture = props.preview ? Video : OffthreadVideo;
   const wash = warmthWash(props.pictureWarmth);
-  const lineColor = lineColorOf(props.lineColor);
+  const lineColor = inkOnPaper(props.lineColor);
   const lineSize = lineSizeOf(props.lineSize);
 
   return (
@@ -130,75 +138,86 @@ export const FlickComposition = (props: FlickProps) => {
                 }}
               />
             ) : null}
+            {captions.get(region.id) ? (
+              <div
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  bottom: "6%",
+                  transform: "translateX(-50%)",
+                  maxWidth: "88%",
+                  width: "max-content",
+                  textAlign: "center",
+                  color: lineColor,
+                  fontSize: lineSize,
+                  fontWeight: 750,
+                  letterSpacing: 0,
+                  lineHeight: 1.2,
+                  background: "#fffdf8",
+                  borderRadius: 999,
+                  padding: "14px 28px",
+                }}
+              >
+                {captions.get(region.id)}
+              </div>
+            ) : null}
           </div>
         );
       })}
-      {props.headline ? (
-        <div
-          style={{
-            position: "absolute",
-            left: 48,
-            right: 48,
-            top: 64,
-            textAlign: "center",
-            color: "#fffdf8",
-            fontSize: 64,
-            fontWeight: 800,
-            lineHeight: 1.05,
-            letterSpacing: -0.5,
-            background: "rgba(28, 25, 21, 0.72)",
-            borderRadius: 18,
-            padding: "14px 16px",
-          }}
-        >
-          {paintWords(props.headline, props.headlineColor || props.accent, props.accentWords || "")}
-        </div>
-      ) : null}
       {rank ? (
         <div
           style={{
             position: "absolute",
-            left: 48,
-            right: 48,
-            top: 420,
-            textAlign: "center",
-            color: "#e2b340",
-            fontSize: 140,
+            left: "50%",
+            top: 36,
+            transform: "translateX(-50%)",
+            zIndex: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 220,
+            height: 250,
+            background: "#e2b340",
+            color: "#1c1915",
+            fontSize: 132,
             fontWeight: 800,
-            WebkitTextStroke: "12px #1c1915",
-            paintOrder: "stroke fill",
-            background: "rgba(28, 25, 21, 0.35)",
-            borderRadius: 24,
+            lineHeight: 1,
+            borderRadius: "48px 48px 64px 64px",
           }}
         >
           {rank}
         </div>
       ) : null}
-      {caption ? (
+      {props.headline ? (
         <div
           style={{
             position: "absolute",
-            left: 48,
-            right: 48,
-            top: props.headline ? 640 : "46%",
+            left: "50%",
+            top: rank ? 310 : 48,
+            transform: "translateX(-50%)",
+            zIndex: 4,
+            maxWidth: "88%",
+            width: "max-content",
             textAlign: "center",
-            color: lineColor,
-            fontSize: lineSize,
+            color: "#1c1915",
+            fontSize: 56,
             fontWeight: 800,
-            letterSpacing: 0.2,
-            lineHeight: 1.15,
-            background: "rgba(28, 25, 21, 0.78)",
-            borderRadius: 16,
-            padding: "12px 16px",
-            WebkitTextStroke: props.headline ? `${Math.min(props.titleStroke ?? 6, 8)}px #1c1915` : undefined,
-            paintOrder: "stroke fill",
+            lineHeight: 1.08,
+            letterSpacing: -0.4,
+            background: "#fffdf8",
+            borderRadius: 28,
+            padding: "16px 28px",
           }}
         >
-          {caption}
+          {paintWords(props.headline, props.headlineColor || props.accent, props.accentWords || "")}
         </div>
       ) : null}
       {props.musicSrc ? <Audio src={props.musicSrc} loop volume={musicVolume(Boolean(props.voiceSrc))} /> : null}
-      {props.voiceSrc ? <Audio src={props.voiceSrc} volume={VOICE_VOLUME} /> : null}
+      {props.voiceSrc ? (
+        <Sequence from={voiceFrom}>
+          <Audio src={props.voiceSrc} volume={VOICE_VOLUME} />
+        </Sequence>
+      ) : null}
       {props.musicSrc && props.musicCredit ? (
         <div
           style={{
@@ -235,8 +254,17 @@ function paintWords(text: string, color: string, words: string) {
     <div key={lineIndex}>
       {line.split(/(\s+)/).map((part, index) => {
         const hit = keys.some((key) => part.toLowerCase().includes(key));
+        const mark = accentOnPaper(color);
         return (
-          <span key={index} style={{ color: hit ? color : "#fff" }}>
+          <span
+            key={index}
+            style={{
+              color: hit ? mark.color : "#1c1915",
+              background: hit ? mark.background : undefined,
+              borderRadius: hit && mark.background ? 10 : undefined,
+              padding: hit && mark.background ? "0 8px" : undefined,
+            }}
+          >
             {part}
           </span>
         );
@@ -245,6 +273,169 @@ function paintWords(text: string, color: string, words: string) {
   ));
 }
 
-function inside(clip: RenderClip, time: number): boolean {
+function inside(clip: { startSec: number; inSec: number; outSec: number }, time: number): boolean {
   return time >= clip.startSec && time < clip.startSec + Math.max(clip.outSec - clip.inSec, 0);
+}
+
+export type CaptionRegion = {
+  id: string;
+  trackId: string;
+  y: number;
+  height: number;
+  hidden: boolean;
+};
+
+export type CaptionClip = {
+  trackId: string;
+  startSec: number;
+  inSec: number;
+  outSec: number;
+  line?: string;
+  fileName?: string;
+};
+
+/** Spoken words for every visible region that has a clip at this time. */
+export function collectRegionLines(
+  regions: CaptionRegion[],
+  clips: CaptionClip[],
+  time: number,
+  showCaptions: boolean | undefined,
+): { regionId: string; line: string }[] {
+  if (showCaptions === false) return [];
+  return regions
+    .filter((region) => !region.hidden && region.height > 0.01)
+    .sort((a, b) => a.y - b.y)
+    .flatMap((region) => {
+      const clip = clips.find((item) => item.trackId === region.trackId && inside(item, time));
+      const line = spokenLine(clip?.line, clip?.fileName);
+      return line ? [{ regionId: region.id, line }] : [];
+    });
+}
+
+/**
+ * A new import keeps a caption the person already typed.
+ * The file name stays on the media. It is never written into the caption, and a typed caption is never sliced.
+ */
+export function captionFromFile(existing: string | undefined, fileName: string): string {
+  if (existing && existing.trim()) return existing;
+  if (fileName.trim()) return "";
+  return "";
+}
+
+/** Read voiceStartSec when the object carries it. Old flicks omit the field. */
+export function voiceStartOf(source: object | null | undefined): number {
+  if (!source || !("voiceStartSec" in source)) return 0;
+  const value = (source as { voiceStartSec?: unknown }).voiceStartSec;
+  return storedVoiceStart(typeof value === "number" ? value : undefined);
+}
+
+export type DeskOpenFields = {
+  name: string;
+  editedTrackIds: string[];
+  clips: Clip[];
+  regions?: Region[];
+  tracks?: Track[];
+  headline?: string;
+  headlineColor?: string;
+  accentWords?: string;
+  titleStroke?: number;
+  showRank?: boolean;
+  showCaptions?: boolean;
+  titleFont?: string;
+  lineColor?: string;
+  lineSize?: number;
+  pictureWarmth?: number;
+};
+
+export type DeskOpenPlan = {
+  id: string;
+  voiceKept: boolean;
+  flick: Flick;
+};
+
+/** An empty headline stays empty. Undefined means the desk default. */
+export function headlineFromFlick(headline: string | undefined, fallback: string): string {
+  return headline === undefined ? fallback : headline;
+}
+
+/** A caption is the spoken line. The clip label, including a filename stem, is not one. */
+export function titleFromClip(clip: { line?: string; label?: string } | null | undefined): string {
+  return clip?.line ?? "";
+}
+
+/** Dual video uses face and gameplay. A split-screen flick uses the top and bottom tracks. */
+export function splitTrackPair(source: { templateId?: string; tracks?: { id: string }[] } | null | undefined): { face: string; game: string } {
+  const ids = new Set((source?.tracks ?? []).map((track) => track.id));
+  if (source?.templateId === "builtin-split") return { face: "track-top", game: "track-bottom" };
+  if (source?.templateId === "builtin-dual" || ids.has("track-face") || ids.has("track-game")) {
+    return { face: "track-face", game: "track-game" };
+  }
+  if (ids.has("track-top") && ids.has("track-bottom")) return { face: "track-top", game: "track-bottom" };
+  return { face: "track-face", game: "track-game" };
+}
+
+/**
+ * Update the open flick when one already exists.
+ * A new desk gets no voice file, so voiceRelative and voiceStartSec stay off.
+ * Clips on tracks the desk is not editing stay, including Loop media.
+ */
+export function openDeskFlick(existing: Flick | null, desk: DeskOpenFields): DeskOpenPlan {
+  const edited = new Set(desk.editedTrackIds);
+  if (!existing) {
+    return {
+      id: "",
+      voiceKept: false,
+      flick: {
+        id: "",
+        name: desk.name,
+        fps: 30,
+        width: 1080,
+        height: 1920,
+        regions: desk.regions ?? [],
+        tracks: desk.tracks ?? [],
+        clips: desk.clips,
+        headline: desk.headline,
+        headlineColor: desk.headlineColor,
+        accentWords: desk.accentWords,
+        titleStroke: desk.titleStroke,
+        showRank: desk.showRank,
+        showCaptions: desk.showCaptions,
+        titleFont: desk.titleFont,
+        lineColor: desk.lineColor,
+        lineSize: desk.lineSize,
+        pictureWarmth: desk.pictureWarmth,
+        voiceRelative: undefined,
+        voiceStartSec: undefined,
+        musicId: undefined,
+        musicCredit: undefined,
+      },
+    };
+  }
+  const voiceRelative = existing.voiceRelative;
+  return {
+    id: existing.id,
+    voiceKept: Boolean(voiceRelative),
+    flick: {
+      ...existing,
+      id: existing.id,
+      name: desk.name,
+      regions: desk.regions ?? existing.regions,
+      tracks: desk.tracks ?? existing.tracks,
+      clips: [...desk.clips, ...existing.clips.filter((clip) => !edited.has(clip.trackId))],
+      headline: desk.headline !== undefined ? desk.headline : existing.headline,
+      headlineColor: desk.headlineColor !== undefined ? desk.headlineColor : existing.headlineColor,
+      accentWords: desk.accentWords !== undefined ? desk.accentWords : existing.accentWords,
+      titleStroke: desk.titleStroke !== undefined ? desk.titleStroke : existing.titleStroke,
+      showRank: desk.showRank !== undefined ? desk.showRank : existing.showRank,
+      showCaptions: desk.showCaptions !== undefined ? desk.showCaptions : existing.showCaptions,
+      titleFont: desk.titleFont !== undefined ? desk.titleFont : existing.titleFont,
+      lineColor: desk.lineColor !== undefined ? desk.lineColor : existing.lineColor,
+      lineSize: desk.lineSize !== undefined ? desk.lineSize : existing.lineSize,
+      pictureWarmth: desk.pictureWarmth !== undefined ? desk.pictureWarmth : existing.pictureWarmth,
+      voiceRelative,
+      musicId: existing.musicId,
+      musicCredit: existing.musicCredit,
+      voiceStartSec: voiceRelative ? existing.voiceStartSec : undefined,
+    },
+  };
 }

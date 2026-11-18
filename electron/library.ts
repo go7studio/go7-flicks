@@ -63,6 +63,12 @@ export function rememberChannel(dir: string, name: string): void {
   writeJson(path.join(userDir(), "recent.json"), next);
 }
 
+export function forgetRecent(dir: string): void {
+  const target = path.resolve(dir);
+  const next = storedRecents().filter((item) => path.resolve(item.path) !== target);
+  writeJson(path.join(userDir(), "recent.json"), next);
+}
+
 export function createChannel(parent: string, rawName: string): { dir: string; channel: ChannelFile } {
   const name = safeName(rawName);
   const dir = path.join(parent, name);
@@ -131,6 +137,31 @@ export function saveFlick(dir: string, flick: Flick): Flick {
   return clean;
 }
 
+export function duplicateFlick(dir: string, flickId: string): Flick {
+  assertId(flickId);
+  const sourceFile = path.join(dir, "flicks", flickId, "flick.json");
+  if (!fs.existsSync(sourceFile)) throw new Error("That flick is missing.");
+  const channel = readChannel(dir);
+  if (!channel.flicks.some((item) => item.id === flickId)) throw new Error("That flick is not in this channel.");
+  const copy = JSON.parse(fs.readFileSync(sourceFile, "utf8")) as Flick;
+  copy.id = uid();
+  const destFolder = path.join(dir, "flicks", copy.id);
+  fs.cpSync(path.join(dir, "flicks", flickId), destFolder, { recursive: true });
+  writeJson(path.join(destFolder, "flick.json"), copy);
+  channel.flicks.unshift({ id: copy.id, name: copy.name, updatedAt: new Date().toISOString() });
+  writeJson(path.join(dir, "channel.json"), channel);
+  return copy;
+}
+
+export function deleteFlick(dir: string, flickId: string): void {
+  assertId(flickId);
+  const channel = readChannel(dir);
+  if (!channel.flicks.some((item) => item.id === flickId)) throw new Error("That flick is not in this channel.");
+  channel.flicks = channel.flicks.filter((item) => item.id !== flickId);
+  writeJson(path.join(dir, "channel.json"), channel);
+  fs.rmSync(path.join(dir, "flicks", flickId), { recursive: true, force: true });
+}
+
 export function importMedia(dir: string, source: string, mode: "copy" | "link", info: Omit<MediaAsset, "id" | "name" | "relativePath" | "absolutePath"> & { name?: string }): MediaAsset {
   if (!fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error("That file is missing.");
   const channel = readChannel(dir);
@@ -156,6 +187,26 @@ export function importMedia(dir: string, source: string, mode: "copy" | "link", 
   writeJson(path.join(dir, "channel.json"), channel);
   rememberShelf(userDir(), source, { name, ...info }, mode);
   return asset;
+}
+
+export function removeMedia(dir: string, mediaId: string): void {
+  assertId(mediaId);
+  const channel = readChannel(dir);
+  const asset = channel.media.find((item) => item.id === mediaId);
+  if (!asset) throw new Error("That file is not in this channel.");
+  for (const summary of channel.flicks) {
+    if (!ID.test(summary.id)) continue;
+    const file = path.join(dir, "flicks", summary.id, "flick.json");
+    if (!fs.existsSync(file)) continue;
+    const flick = JSON.parse(fs.readFileSync(file, "utf8")) as { clips?: { mediaId?: string | null }[]; musicId?: string };
+    if ((flick.clips ?? []).some((clip) => clip.mediaId === mediaId) || flick.musicId === mediaId) {
+      throw new Error("A clip still uses that file.");
+    }
+  }
+  const file = resolveChannelMedia(dir, asset);
+  channel.media = channel.media.filter((item) => item.id !== mediaId);
+  writeJson(path.join(dir, "channel.json"), channel);
+  if (file && fs.existsSync(file) && fileInside(dir, file)) fs.rmSync(file);
 }
 
 export function listTemplates(): Template[] {
@@ -282,9 +333,15 @@ function publish(row: StoredConnection): ConnectionPublic {
   };
 }
 
+function voiceStartSecOf(flick: Flick): number | undefined {
+  const value = (flick as { voiceStartSec?: unknown }).voiceStartSec;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function sanitizeFlick(flick: Flick): Flick {
   assertId(flick.id);
-  return {
+  const voiceStartSec = voiceStartSecOf(flick);
+  const clean = {
     ...flick,
     name: safeName(flick.name),
     fps: 30,
@@ -311,13 +368,23 @@ function sanitizeFlick(flick: Flick): Flick {
       line: clip.line?.trim() || undefined,
       focus: typeof clip.focus === "number" && Number.isFinite(clip.focus) ? Math.min(1, Math.max(0, clip.focus)) : undefined,
     })),
-  };
+  } as Flick & { voiceStartSec?: number };
+  if (voiceStartSec === undefined) delete clean.voiceStartSec;
+  else clean.voiceStartSec = voiceStartSec;
+  return clean;
 }
 
 function resolveChannelMedia(dir: string, asset: MediaAsset): string | null {
   if (asset.absolutePath) return asset.absolutePath;
   if (asset.relativePath) return path.join(dir, asset.relativePath);
   return null;
+}
+
+function fileInside(dir: string, file: string): boolean {
+  const root = fs.existsSync(dir) ? fs.realpathSync(dir) : path.resolve(dir);
+  const target = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
+  const rel = path.relative(root, target);
+  return rel.length > 0 && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
 function safeName(name: string): string {

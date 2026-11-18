@@ -174,6 +174,33 @@ export function lineColorOf(value: string | undefined): string {
   return /^#[0-9a-fA-F]{6}$/.test(value?.trim() ?? "") ? (value as string).trim() : "#ffffff";
 }
 
+/** A paper pill. Light colors, including the default white, become ink so the words stay readable. */
+export function inkOnPaper(value: string | undefined): string {
+  const hex = lineColorOf(value).toLowerCase();
+  return lightOnPaper(hex) ? "#1c1915" : hex;
+}
+
+/**
+ * Accent words on a paper pill.
+ * A dark chosen color stays the text. Gold, white, and other light colors become a highlight behind ink.
+ */
+export function accentOnPaper(value: string | undefined): { color: string; background?: string } {
+  const raw = value?.trim() ?? "";
+  const hex = (/^#[0-9a-fA-F]{6}$/.test(raw) ? raw : "#e2b340").toLowerCase();
+  if (!lightOnPaper(hex)) return { color: hex };
+  const background = hex === "#ffffff" || hex === "#fffdf8" ? "#e2b340" : hex;
+  return { color: "#1c1915", background };
+}
+
+function lightOnPaper(hex: string): boolean {
+  const n = Number.parseInt(hex.slice(1), 16);
+  if (!Number.isFinite(n)) return true;
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.62;
+}
+
 export function storedLineColor(value: string | undefined): string | undefined {
   const trimmed = value?.trim() ?? "";
   return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : undefined;
@@ -218,7 +245,7 @@ export function assignLinesInOrder(ids: string[], lines: string[], startId: stri
 }
 
 export function flickFromTemplate(template: Template, name: string): Flick {
-  return {
+  const flick: Flick = {
     id: uid(),
     name,
     fps: template.fps,
@@ -245,6 +272,8 @@ export function flickFromTemplate(template: Template, name: string): Flick {
     lineSize: template.lineSize,
     pictureWarmth: template.pictureWarmth,
   };
+  if (template.id !== "builtin-ranking") return flick;
+  return { ...flick, regions: frameForClips(flick.regions, flick.clips) };
 }
 
 export function templateFromFlick(flick: Flick, name: string, id = uid()): Template {
@@ -396,9 +425,85 @@ export function fitClipsToMedia(clips: Clip[], limits: ReadonlyMap<string, numbe
   return tracks.reduce((packed, trackId) => packTrack(packed, trackId), fitted);
 }
 
-export function placeClip(clips: Clip[], trackId: string, clip: Clip): Clip[] {
+export type PlaceOptions = {
+  mode?: "place" | "append";
+  replaceId?: string;
+};
+
+/** Append stays the default so older callers keep adding at the end of the track. Place fills or replaces. */
+export function placeClip(clips: Clip[], trackId: string, clip: Clip, options?: PlaceOptions): Clip[] {
+  if ((options?.mode ?? "append") === "place") {
+    const target = placeTarget(clips, trackId, options?.replaceId);
+    if (target) {
+      const next = clips.map((item) => (item.id === target.id ? writeMedia(target, clip) : item));
+      return packTrack(next, trackId);
+    }
+  }
   const end = timelineEnd(clips.filter((item) => item.trackId === trackId));
   return packTrack([...clips, { ...clip, trackId, startSec: end }], trackId);
+}
+
+function placeTarget(clips: Clip[], trackId: string, replaceId?: string): Clip | null {
+  if (replaceId) {
+    const chosen = clips.find((item) => item.id === replaceId && item.trackId === trackId);
+    if (chosen) return chosen;
+  }
+  return (
+    clips
+      .filter((item) => item.trackId === trackId && !item.mediaId)
+      .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id))[0] ?? null
+  );
+}
+
+function assetSeconds(incoming: Clip): number {
+  const span = incoming.outSec - Math.max(0, Math.min(incoming.inSec, incoming.outSec));
+  return Math.max(0.1, span);
+}
+
+function writeMedia(target: Clip, incoming: Clip): Clip {
+  const assetSec = assetSeconds(incoming);
+  const filled = Boolean(target.mediaId);
+  const range = filled ? { inSec: 0, outSec: round3(assetSec) } : clampWindow(target.inSec, target.outSec, assetSec);
+  const focus = filled
+    ? typeof incoming.focus === "number" && Number.isFinite(incoming.focus)
+      ? incoming.focus
+      : 0.5
+    : target.focus;
+  return {
+    ...target,
+    mediaId: incoming.mediaId,
+    label: target.label.trim() ? target.label : incoming.label,
+    sourceUrl: incoming.sourceUrl,
+    inSec: range.inSec,
+    outSec: range.outSec,
+    startSec: target.startSec,
+    line: target.line,
+    focus,
+  };
+}
+
+/** A shelf remove runs only after the flick save succeeds. */
+export function shelfRemovePlan(save: { ok: boolean; message?: string }): { remove: boolean; message: string } {
+  if (save.ok) return { remove: true, message: "" };
+  return { remove: false, message: save.message?.trim() || "Could not save the flick." };
+}
+
+/** Keep a selected region only when it is still on screen and has a picture. */
+export function visibleSelection(regions: Region[], clips: Clip[], preferredId: string | null): string | null {
+  const shown = (region: Region) =>
+    !region.hidden && region.height > 0.01 && clips.some((clip) => clip.trackId === region.trackId && Boolean(clip.mediaId));
+  const preferred = preferredId ? regions.find((region) => region.id === preferredId) : undefined;
+  if (preferred && shown(preferred)) return preferred.id;
+  return regions.find(shown)?.id ?? null;
+}
+
+function clampWindow(inSec: number, outSec: number, assetSec: number): { inSec: number; outSec: number } {
+  const limit = Math.max(assetSec, 0.1);
+  const endCap = Math.min(Math.max(outSec, 0.1), limit);
+  let start = Math.min(Math.max(0, inSec), Math.max(0, endCap - 0.1));
+  let end = Math.min(limit, Math.max(endCap, start + 0.1));
+  if (end < start + 0.1) start = Math.max(0, end - 0.1);
+  return { inSec: round3(start), outSec: round3(Math.max(start + 0.1, end)) };
 }
 
 /** The path the save dialog should open on. Keeps the channel's own slash, so Windows does not treat the folder as part of the file name. */
@@ -411,6 +516,67 @@ export function exportSavePath(dir: string, name: string): string {
 
 export function visibleRegions(regions: Region[]): Region[] {
   return regions.filter((region) => !region.hidden && region.height > 0.01).sort((a, b) => a.y - b.y);
+}
+
+/** Hide a region until its track has a picture, then stack the regions that remain so they fill the frame. */
+export function frameForClips(regions: Region[], clips: Clip[]): Region[] {
+  const occupied = new Set(clips.filter((clip) => clip.mediaId).map((clip) => clip.trackId));
+  const order = new Map(regions.map((region, index) => [region.id, index]));
+  const shown = regions
+    .filter((region) => occupied.has(region.trackId))
+    .sort((a, b) => a.y - b.y || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  if (shown.length === 0) {
+    const next = regions.map((region) => (region.hidden ? region : { ...region, hidden: true }));
+    return sameRegions(regions, next) ? regions : next;
+  }
+  if (shown.length === 1) {
+    const only = shown[0];
+    const next = regions.map((region) =>
+      region.id === only.id
+        ? { ...region, x: 0, y: 0, width: 1, height: 1, hidden: false }
+        : region.hidden
+          ? region
+          : { ...region, hidden: true },
+    );
+    return sameRegions(regions, next) ? regions : next;
+  }
+  const weights = designWeights(shown);
+  const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  let y = 0;
+  const placed = new Map<string, Region>();
+  shown.forEach((region, index) => {
+    const height = index === shown.length - 1 ? round3(1 - y) : round3(weights[index] / total);
+    placed.set(region.id, { ...region, x: 0, y: round3(y), width: 1, height, hidden: false });
+    y = round3(y + height);
+  });
+  const next = regions.map((region) => placed.get(region.id) ?? (region.hidden ? region : { ...region, hidden: true }));
+  return sameRegions(regions, next) ? regions : next;
+}
+
+function designWeights(shown: Region[]): number[] {
+  return shown.map((region) => {
+    const others = shown.filter((item) => item.id !== region.id);
+    const othersSum = others.reduce((sum, item) => sum + item.height, 0);
+    const collapsed =
+      region.height >= 0.99 && others.every((item) => item.height < 0.99) && othersSum > 0.05 && othersSum < 0.99;
+    if (collapsed) return Math.max(0.12, round3(1 - othersSum));
+    return Math.max(region.height, 0.01);
+  });
+}
+
+function sameRegions(prev: Region[], next: Region[]): boolean {
+  return next.length === prev.length && next.every((region, index) => {
+    const before = prev[index];
+    return (
+      before.id === region.id &&
+      before.trackId === region.trackId &&
+      before.x === region.x &&
+      before.y === region.y &&
+      before.width === region.width &&
+      before.height === region.height &&
+      before.hidden === region.hidden
+    );
+  });
 }
 
 export function fullFrame(regions: Region[], regionId: string): Region[] {
@@ -506,10 +672,22 @@ export function isMachineStem(value: string): boolean {
   return !stem || MACHINE_UUID.test(stem) || CAMERA_STAMP.test(stem);
 }
 
-export function spokenLine(value: string | undefined): string {
+export function spokenLine(value: string | undefined, mediaName?: string): string {
   const text = value?.replace(/\s+/g, " ").trim() ?? "";
   if (!text || isMachineStem(text) || /\.(mp4|mov|m4v|webm|mkv)$/i.test(text)) return "";
+  if (!/\s/.test(text) && /[_-]/.test(text)) return "";
+  if (mediaName && sameMediaName(text, mediaName)) return "";
   return text;
+}
+
+function sameMediaName(text: string, mediaName: string): boolean {
+  const named = mediaName.trim();
+  if (!named) return false;
+  const lower = text.toLowerCase();
+  if (lower === named.toLowerCase()) return true;
+  const stem = fileStem(named);
+  if (!stem || /\s/.test(stem)) return false;
+  return lower === stem.toLowerCase();
 }
 
 export function shelfName(

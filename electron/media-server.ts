@@ -79,13 +79,16 @@ function inside(root: string, resolved: string): boolean {
   return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-function mime(file: string): string {
+export function mime(file: string): string {
   const ext = path.extname(file).toLowerCase();
   if (ext === ".mp4" || ext === ".m4v") return "video/mp4";
   if (ext === ".webm") return "video/webm";
   if (ext === ".mov") return "video/quicktime";
+  if (ext === ".mkv") return "video/x-matroska";
   if (ext === ".mp3") return "audio/mpeg";
   if (ext === ".wav") return "audio/wav";
+  if (ext === ".m4a") return "audio/mp4";
+  if (ext === ".aac") return "audio/aac";
   if (ext === ".png") return "image/png";
   return "application/octet-stream";
 }

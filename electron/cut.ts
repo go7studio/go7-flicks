@@ -5,9 +5,55 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { visibleRegions } from "../src/shared/canvas";
 import { creditDrawtext, cutAudioFilter } from "../src/shared/mix";
-import { clipDuration, type Flick, type MediaAsset } from "../src/shared/model";
+import { clipDuration, storedVoiceStart, type Flick, type MediaAsset } from "../src/shared/model";
 
 const exec = promisify(execFile);
+
+/** Styled export reads this. Missing or invalid becomes 0 so the voice starts with the picture. */
+export function styledVoiceStart(flick: { voiceStartSec?: number } | null | undefined): number {
+  return storedVoiceStart(flick?.voiceStartSec);
+}
+
+/** adelay on both channels. Zero and missing stay silent of any delay. */
+export function voiceDelayFilter(startSec: number | undefined): string {
+  const seconds = storedVoiceStart(startSec);
+  if (seconds <= 0) return "";
+  const ms = Math.round(seconds * 1000);
+  if (ms <= 0) return "";
+  return `adelay=${ms}|${ms}`;
+}
+
+/** Insert the voice delay on the voice input. The picture map is left alone. */
+export function delayVoiceInFilter(filter: string, startSec: number | undefined): string {
+  const delay = voiceDelayFilter(startSec);
+  if (!delay || !filter.includes("[2:a]")) return filter;
+  return filter.replace("[2:a]", `[2:a]${delay},`);
+}
+
+/** Copy the picture. Delay only the voice input when the flick asks for it. */
+export function voiceMuxArgs(silent: string, voice: string, output: string, startSec: number | undefined): string[] {
+  const delay = voiceDelayFilter(startSec);
+  if (!delay) return ["-y", "-i", silent, "-i", voice, "-c:v", "copy", "-c:a", "aac", "-shortest", output];
+  return [
+    "-y",
+    "-i",
+    silent,
+    "-i",
+    voice,
+    "-filter_complex",
+    `[1:a]${delay}[a]`,
+    "-map",
+    "0:v",
+    "-map",
+    "[a]",
+    "-c:v",
+    "copy",
+    "-c:a",
+    "aac",
+    "-shortest",
+    output,
+  ];
+}
 
 export async function exportCut(input: {
   ffmpeg: string;
@@ -108,9 +154,10 @@ export async function exportCut(input: {
     const textFile = credit ? path.join(tmp, "credit.txt") : "";
     if (credit && textFile) fs.writeFileSync(textFile, credit, "utf8");
     const drawtext = credit && font && textFile ? creditDrawtext(font, textFile) : null;
-    const filter = cutAudioFilter({ hasVoice: voiceReady, hasMusic: musicReady, drawtext });
+    const rawFilter = cutAudioFilter({ hasVoice: voiceReady, hasMusic: musicReady, drawtext });
+    const filter = rawFilter ? delayVoiceInFilter(rawFilter, input.flick.voiceStartSec) : rawFilter;
     if (!musicReady && voiceReady && voice) {
-      await muxVoice(input.ffmpeg, silent, voice, input.outputPath, input.encoder, input.videoBitrate);
+      await muxVoice(input.ffmpeg, silent, voice, input.outputPath, input.encoder, input.videoBitrate, input.flick.voiceStartSec);
     } else if (musicReady && filter && music) {
       await muxMusic(input.ffmpeg, silent, music, voiceReady ? voice : "", filter, Boolean(drawtext), input.outputPath, input.encoder, input.videoBitrate);
     } else {
@@ -220,16 +267,20 @@ async function muxVoice(
   output: string,
   encoder: string,
   videoBitrate: string | undefined,
+  startSec: number | undefined,
 ): Promise<void> {
   try {
-    await run(ffmpeg, ["-y", "-i", silent, "-i", voice, "-c:v", "copy", "-c:a", "aac", "-shortest", output], 120000);
+    await run(ffmpeg, voiceMuxArgs(silent, voice, output, startSec), 120000);
     if (ready(output)) return;
   } catch {
     fs.rmSync(output, { force: true });
   }
+  const delay = voiceDelayFilter(startSec);
+  const lead = ["-y", "-i", silent, "-i", voice];
+  if (delay) lead.push("-filter_complex", `[1:a]${delay}[a]`, "-map", "0:v", "-map", "[a]");
   await runVideo(
     ffmpeg,
-    ["-y", "-i", silent, "-i", voice, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"],
+    [...lead, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"],
     output,
     encoder,
     videoBitrate,

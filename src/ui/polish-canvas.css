@@ -1,0 +1,453 @@
+/* Canvas chrome only. Scoped to .app so Home, Library, Channel, and desks stay untouched.
+   Paper-and-ink: paper #f7f3ea, card #fffdf8, gold #e2b340, ink #1c1915, line #e6dfd2.
+   Does not restyle Remotion output inside FlickComposition. */
+
+.app.canvas-screen {
+  background: #f7f3ea;
+  color: #1c1915;
+  font-family: "Segoe UI", "Avenir Next", sans-serif;
+}
+
+/* Toolbar: tighter wrap, paper card bar, gold primary Export */
+.app.canvas-screen .toolbar {
+  min-height: 72px;
+  padding: 12px 20px;
+  gap: 10px 14px;
+  align-items: center;
+  background: #fffdf8;
+  border-bottom: 1px solid #e6dfd2;
+}
+
+.app.canvas-screen .canvas-nav {
+  gap: 8px;
+  padding-right: 14px;
+  margin-right: 4px;
+  border-right: 1px solid #e6dfd2;
+}
+
+.app.canvas-screen .flick-name {
+  min-height: 40px;
+  border-radius: 10px;
+  border-color: #e6dfd2;
+  background: #fffdf8;
+}
+
+.app.canvas-screen .toolbar .btn {
+  min-height: 40px;
+  border-radius: 10px;
+  border-color: #cfc6b8;
+  background: #fffdf8;
+  color: #1c1915;
+  font-weight: 650;
+}
+
+.app.canvas-screen .toolbar .btn:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
+}
+
+.app.canvas-screen .toolbar .btn-primary {
+  min-height: 44px;
+  padding: 10px 18px;
+  background: #e2b340;
+  color: #1c1915;
+  border: 1px solid #c9a15b;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 750;
+  box-shadow: 0 8px 18px rgba(226, 179, 64, 0.28);
+}
+
+.app.canvas-screen .toolbar .btn-primary:hover {
+  background: #d4a433;
+  color: #1c1915;
+  border-color: #c9a15b;
+}
+
+.app.canvas-screen .toolbar .btn:focus-visible,
+.app.canvas-screen .toolbar .btn-primary:focus-visible,
+.app.canvas-screen .canvas-nav .btn:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: 2px;
+}
+
+.app.canvas-screen .banner {
+  margin: 10px 20px 0;
+  padding: 8px 16px;
+  background: #f8f1e3;
+  border: 1px solid #e6dfd2;
+  border-radius: 12px;
+  color: #1c1915;
+}
+
+/* Shelf rail: paper sticky, card rhythm */
+.app.canvas-screen .shelf-rail {
+  background: #f7f3ea;
+}
+
+.app.canvas-screen .shelf-sticky {
+  gap: 10px;
+  padding: 14px 14px 12px;
+  background: #f7f3ea;
+  border-bottom: 1px solid #e6dfd2;
+}
+
+.app.canvas-screen .shelf-head h2 {
+  color: #1c1915;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+}
+
+.app.canvas-screen .shelf-purpose {
+  margin: 4px 0 0;
+  color: #5c564c;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.app.canvas-screen .shelf-search .field {
+  min-height: 40px;
+  border-radius: 10px;
+  border-color: #e6dfd2;
+  background: #fffdf8;
+}
+
+.app.canvas-screen .shelf-count {
+  color: #5c564c;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.app.canvas-screen .shelf-actions {
+  gap: 8px;
+}
+
+.app.canvas-screen .shelf-add {
+  min-height: 40px;
+  background: #fffdf8;
+  border-color: #e4d3b0;
+  color: #1c1915;
+  font-weight: 650;
+  border-radius: 10px;
+}
+
+.app.canvas-screen .shelf-add:hover {
+  background: #f8f1e3;
+  border-color: #8c6b2e;
+}
+
+.app.canvas-screen .shelf-list {
+  gap: 10px;
+  padding: 12px 14px 20px;
+}
+
+.app.canvas-screen .shelf-row {
+  background: #fffdf8;
+  border: 1px solid #e6dfd2;
+  border-left: 3px solid #e6dfd2;
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 16px rgba(36, 28, 20, 0.03);
+}
+
+.app.canvas-screen .shelf-row.on {
+  border-left-color: #e2b340;
+  background: #fffdf8;
+}
+
+.app.canvas-screen .shelf-name {
+  color: #1c1915;
+  font-weight: 650;
+}
+
+.app.canvas-screen .shelf-time {
+  color: #5c564c;
+  font-variant-numeric: tabular-nums;
+}
+
+.app.canvas-screen .shelf-meta {
+  margin: 4px 0 0;
+  color: #5c564c;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.app.canvas-screen .shelf-places {
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.app.canvas-screen .shelf-place {
+  min-height: 34px;
+  border-radius: 8px;
+  background: #fffdf8;
+  border-color: #cfc6b8;
+  color: #1c1915;
+  font-weight: 650;
+}
+
+.app.canvas-screen .shelf-place:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
+}
+
+.app.canvas-screen .shelf-place.on {
+  border-color: #8c6b2e;
+  background: #f8f1e3;
+}
+
+.app.canvas-screen .shelf-place:focus-visible,
+.app.canvas-screen .shelf-add:focus-visible,
+.app.canvas-screen .used-clip:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: 2px;
+}
+
+/* Empty shelf: paper card, readable copy */
+.app.canvas-screen .shelf-empty {
+  margin: 0;
+  padding: 16px 14px;
+  background: #fffdf8;
+  border: 1px solid #e6dfd2;
+  border-radius: 14px;
+  color: #5c564c;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+  box-shadow: 0 6px 16px rgba(36, 28, 20, 0.03);
+}
+
+.app.canvas-screen .used-clips {
+  margin-top: 8px;
+  gap: 8px;
+}
+
+.app.canvas-screen .used-clip {
+  background: #fffdf8;
+  border: 1px solid #e6dfd2;
+  border-radius: 12px;
+  color: #1c1915;
+}
+
+.app.canvas-screen .used-clip:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
+}
+
+/* Stage: paper field; frame keeps existing 1px gold hairline */
+.app.canvas-screen .stage-wrap {
+  background: #f7f3ea;
+  padding: 18px;
+}
+
+.app.canvas-screen .frame-wrap {
+  border: 1px solid #e2b340;
+  border-radius: 28px;
+  background: transparent;
+  box-shadow: 0 18px 40px rgba(36, 28, 20, 0.08);
+}
+
+/* Inspector: section breathing, ink labels, paper fields */
+.app.canvas-screen .inspector {
+  background: #fffdf8;
+  border-left: 1px solid #e6dfd2;
+  padding: 16px 14px 28px;
+  gap: 14px;
+}
+
+.app.canvas-screen .inspector > .tiny.muted {
+  margin: 0;
+  color: #5c564c;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.app.canvas-screen .inspector label.stack {
+  gap: 6px;
+}
+
+.app.canvas-screen .inspector label.stack > span:first-child {
+  color: #5c564c;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.app.canvas-screen .inspector .field,
+.app.canvas-screen .inspector select.field,
+.app.canvas-screen .inspector textarea.field {
+  min-height: 40px;
+  border-radius: 10px;
+  border-color: #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
+}
+
+.app.canvas-screen .inspector .toggle-line {
+  min-height: 44px;
+  padding: 4px 0;
+  color: #1c1915;
+}
+
+.app.canvas-screen .inspector .row {
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.app.canvas-screen .inspector .btn,
+.app.canvas-screen .inspector .btn-small {
+  min-height: 36px;
+  border-radius: 10px;
+  background: #fffdf8;
+  border-color: #cfc6b8;
+  color: #1c1915;
+  font-weight: 650;
+}
+
+.app.canvas-screen .inspector .btn:hover,
+.app.canvas-screen .inspector .btn-small:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
+}
+
+.app.canvas-screen .inspector .btn:focus-visible,
+.app.canvas-screen .inspector .btn-small:focus-visible,
+.app.canvas-screen .inspector .btn-danger:focus-visible,
+.app.canvas-screen .inspector .field:focus-visible,
+.app.canvas-screen .inspector select.field:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: 2px;
+}
+
+.app.canvas-screen .inspector .muted {
+  color: #5c564c;
+}
+
+.app.canvas-screen .inspector .rail-label {
+  color: #5c564c;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.app.canvas-screen .inspector .cut-own {
+  padding: 10px 12px;
+  background: #f7f3ea;
+  border: 1px solid #e6dfd2;
+  border-radius: 12px;
+}
+
+/* Timeline transport: one aligned row; gold Play */
+.app.canvas-screen .timeline {
+  background: #fffdf8;
+  border-top: 1px solid #e6dfd2;
+  padding: 12px 14px 16px;
+}
+
+.app.canvas-screen .lane-transport {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  min-height: 48px;
+  margin-bottom: 12px;
+}
+
+.app.canvas-screen .btn.lane-play {
+  min-height: 44px;
+  padding: 10px 18px;
+  background: #e2b340;
+  color: #1c1915;
+  border: 1px solid #c9a15b;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 750;
+  box-shadow: 0 8px 18px rgba(226, 179, 64, 0.28);
+}
+
+.app.canvas-screen .btn.lane-play:hover {
+  background: #d4a433;
+  color: #1c1915;
+  border-color: #c9a15b;
+}
+
+.app.canvas-screen .btn.lane-play:focus-visible,
+.app.canvas-screen .lane-split:focus-visible,
+.app.canvas-screen .lane-history:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: 2px;
+}
+
+.app.canvas-screen .lane-clock {
+  min-width: 9em;
+  color: #1c1915;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.app.canvas-screen .lane-edits {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app.canvas-screen .lane-split,
+.app.canvas-screen .btn.lane-history {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #fffdf8;
+  border: 1px solid #cfc6b8;
+  color: #1c1915;
+  font-weight: 650;
+}
+
+.app.canvas-screen .lane-split:hover,
+.app.canvas-screen .btn.lane-history:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
+}
+
+.app.canvas-screen .lane-range {
+  margin: 0 0 0 auto;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: 1px solid #e4d3b0;
+  border-radius: 999px;
+  background: #f8f1e3;
+  color: #1c1915;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.app.canvas-screen .lane-note {
+  margin: 10px 0 0;
+  color: #5c564c;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.app.canvas-screen .lane-plate {
+  background: #fffdf8;
+  border-color: #e6dfd2;
+  border-radius: 10px;
+}
+
+.app.canvas-screen .lane-plate-name {
+  color: #1c1915;
+}
+
+.app.canvas-screen .lane-plate-role {
+  color: #5c564c;
+}
+
+.app.canvas-screen .playhead-rule {
+  background: #c9a15b;
+}
+
+.app.canvas-screen .playhead-rule::before {
+  background: #e2b340;
+  border: 2px solid #fffdf8;
+  box-shadow: 0 0 0 1px #c9a15b;
+}

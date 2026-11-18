@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { connectionNote } from "../shared/connection-note";
 import { defaultsFor, subscriptionRefusal, type ChatApi, type ConnectionAuth, type ConnectionDraft, type ConnectionKind, type ConnectionPublic } from "../shared/model";
 import { StartShell } from "./StartShell";
 import "./polish-nav.css";
@@ -144,28 +145,45 @@ export function ConnectionsScreen({
   }
 
   async function signIn(slot: Slot) {
+    const draftForm = form && editing === slot.key ? form : null;
+    if (!draftForm) {
+      setMessage(signInLine(slot.kind));
+      return;
+    }
+    const name = draftForm.name.trim();
+    if (!name) {
+      setMessage("Name this connection first.");
+      return;
+    }
+    if (draftForm.kind === "other" && (!draftForm.baseUrl.trim() || !draftForm.model.trim())) {
+      setMessage("Other connections need a base URL and a model.");
+      return;
+    }
+    const blocked = subscriptionRefusal(draftForm.baseUrl, draftForm.model);
+    if (blocked) {
+      setMessage(blocked);
+      return;
+    }
     setBusy(slot.key);
     setMessage("");
     try {
-      let id = slot.row?.id;
-      if (!id) {
-        const defaults = defaultsFor(slot.kind);
-        const saved = await window.flicks!.saveConnection({
-          kind: slot.kind,
-          name: defaults.name,
-          auth: "cli",
-          baseUrl: defaults.baseUrl,
-          model: defaults.model,
-          api: defaults.api,
-          voiceId: defaults.voiceId,
-        });
-        if (!saved.ok || !saved.connection) {
-          setMessage(saved.message || signInLine(slot.kind));
-          return;
-        }
-        id = saved.connection.id;
+      const saved = await window.flicks!.saveConnection({
+        id: slot.row?.id,
+        kind: draftForm.kind,
+        name,
+        auth: "cli",
+        baseUrl: draftForm.baseUrl.trim(),
+        model: draftForm.model.trim(),
+        api: draftForm.api,
+        voiceId: slot.row?.voiceId || defaultsFor(draftForm.kind).voiceId,
+      });
+      if (!saved.ok || !saved.connection) {
+        setMessage(saved.message || signInLine(slot.kind));
+        return;
       }
-      const result = await window.flicks!.testConnection(id);
+      const result = await window.flicks!.testConnection(saved.connection.id);
+      setForm(null);
+      setEditing(null);
       setMessage(result.ok ? "Connected." : result.message || signInLine(slot.kind));
       await reload();
     } finally {
@@ -222,7 +240,7 @@ export function ConnectionsScreen({
         <div className="conn-list">
           {slots.map((slot) => {
             const connected = slot.row?.connected === true;
-            const status = connected ? "Connected" : slot.row?.statusNote?.trim() || "Not tested";
+            const status = connected ? "Connected" : connectionNote(slot.kind, slot.row?.statusNote ?? "") || "Not tested";
             const editingThis = editing === slot.key;
             const loginChoices: ConnectionAuth[] =
               form?.kind === "cursor"
@@ -325,7 +343,7 @@ export function ConnectionsScreen({
                           <>
                             {" "}
                             <button className="btn" type="button" disabled={busy === slot.key} onClick={() => void signIn(slot)}>
-                              Sign in now
+                              Check sign-in
                             </button>
                           </>
                         )}

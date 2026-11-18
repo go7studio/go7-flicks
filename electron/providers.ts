@@ -1,11 +1,9 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { connectionNote, isCliNoise, presentStatus } from "../src/shared/connection-note";
 import { subscriptionRefusal, type ConnectionPublic, type VoiceOption } from "../src/shared/model";
-
-const exec = promisify(execFile);
 
 export type ProviderTest = {
   ok: boolean;
@@ -124,20 +122,22 @@ async function testCli(connection: ConnectionPublic): Promise<ProviderTest> {
     if (refused) return { ok: false, message: refused };
     return { ok: text.length > 0, message: text.slice(0, 180) || "The program returned nothing." };
   } catch (error) {
-    const detail = commandText(error);
-    return { ok: false, message: loginMessage(connection.kind, detail) || detail.slice(0, 400) };
+    const detail = presentStatus(commandText(error));
+    return { ok: false, message: (loginMessage(connection.kind, detail) || detail).slice(0, 400) || "The program call failed." };
   }
 }
 
 async function runCli(connection: ConnectionPublic, prompt: string, maxTokens = 80): Promise<string> {
   const claude = connection.kind === "claude";
   if (claude && fs.existsSync(CLAUDE_HELPER)) {
-    const result = await exec(
+    const result = await startCli(
       CLAUDE_HELPER,
       ["--account", "auto", "--model", "haiku", "--effort", "low", "--max-tokens", String(maxTokens), "--cache", "none", "--", prompt],
-      { timeout: 90000, encoding: "utf8", maxBuffer: 1_000_000 },
+      process.cwd(),
+      90000,
     );
-    return (result.stdout ?? "").trim();
+    if (result.code !== 0) throw commandFailure(result);
+    return result.stdout.trim();
   }
   const bin = cliBinary(connection.kind);
   if (!bin) throw new Error(missingCli(connection.kind));
@@ -205,44 +205,105 @@ function missingCli(kind: string): string {
 }
 
 function loginMessage(kind: string, text: string): string | null {
-  if (kind === "cursor" && /not logged in|authenticate|CURSOR_API_KEY|login required|sign in/i.test(text)) {
-    return "Cursor is not logged in. Run cursor-agent login, or set CURSOR_API_KEY. This app does not store a Cursor key.";
+  const note = connectionNote(kind, text);
+  const plain = presentStatus(text);
+  if (!note || note === plain) return null;
+  return note;
+}
+
+export function startCli(
+  file: string,
+  args: string[],
+  cwd: string,
+  timeout = 120000,
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  let command = file;
+  let commandArgs = args;
+  let windowsVerbatimArguments = false;
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(file)) {
+    command = process.env.ComSpec || "cmd.exe";
+    commandArgs = ["/d", "/s", "/c", winCommand(file, args)];
+    windowsVerbatimArguments = true;
+  } else if (process.platform === "win32" && /\.ps1$/i.test(file)) {
+    command = "powershell.exe";
+    commandArgs = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file, ...args];
   }
-  if (kind === "grok" && /not signed in|XAI_API_KEY/i.test(text)) {
-    return "Grok is not signed in, and no xAI API key is saved. Paste a key on the Grok row. The host is https://api.x.ai/v1 and the model is grok-4.7.";
-  }
-  return null;
+  return collectSpawn(command, commandArgs, { cwd, timeout, windowsVerbatimArguments });
 }
 
 async function runCommand(file: string, args: string[], cwd: string): Promise<string> {
-  const opts = {
-    timeout: 120000,
-    encoding: "utf8" as const,
-    maxBuffer: 1_000_000,
-    cwd,
-    windowsHide: true,
-  };
   try {
-    if (process.platform === "win32" && /\.(cmd|bat)$/i.test(file)) {
-      const result = await exec(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", winCommand(file, args)], {
-        ...opts,
-        windowsVerbatimArguments: true,
-      });
-      return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
-    }
-    if (process.platform === "win32" && /\.ps1$/i.test(file)) {
-      const result = await exec(
-        "powershell.exe",
-        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file, ...args],
-        opts,
-      );
-      return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
-    }
-    const result = await exec(file, args, opts);
-    return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+    const result = await startCli(file, args, cwd, 120000);
+    if (result.code !== 0) throw commandFailure(result);
+    return `${result.stdout}\n${result.stderr}`.trim();
   } catch (error) {
     throw new Error(commandText(error));
   }
+}
+
+function commandFailure(result: { stdout: string; stderr: string }): Error & { stdout: string; stderr: string } {
+  const error = new Error("Command failed.") as Error & { stdout: string; stderr: string };
+  error.stdout = result.stdout;
+  error.stderr = result.stderr;
+  return error;
+}
+
+function collectSpawn(
+  file: string,
+  args: string[],
+  options: { cwd: string; timeout: number; windowsVerbatimArguments: boolean },
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  const stdio = ["ignore", "pipe", "pipe"] as ["ignore", "pipe", "pipe"];
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, {
+      cwd: options.cwd,
+      windowsHide: true,
+      windowsVerbatimArguments: options.windowsVerbatimArguments,
+      stdio,
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let outBytes = 0;
+    let errBytes = 0;
+    let settled = false;
+    const max = 1_000_000;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(() => reject(Object.assign(new Error("The program timed out."), { stdout: "", stderr: "" })));
+    }, options.timeout);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      outBytes += chunk.length;
+      if (outBytes > max) {
+        child.kill();
+        return;
+      }
+      stdout.push(chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      errBytes += chunk.length;
+      if (errBytes > max) {
+        child.kill();
+        return;
+      }
+      stderr.push(chunk);
+    });
+    child.on("error", (error) => finish(() => reject(error)));
+    child.on("close", (code) => {
+      finish(() =>
+        resolve({
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr: Buffer.concat(stderr).toString("utf8"),
+          code,
+        }),
+      );
+    });
+  });
 }
 
 function winCommand(file: string, args: string[]): string {
@@ -257,9 +318,9 @@ function winCommand(file: string, args: string[]): string {
 function commandText(error: unknown): string {
   if (error && typeof error === "object") {
     const err = error as { message?: string; stderr?: string; stdout?: string };
-    const detail = `${err.stderr ?? ""}\n${err.stdout ?? ""}`.trim();
+    const detail = presentStatus(`${err.stderr ?? ""}\n${err.stdout ?? ""}`);
     if (detail) return detail.slice(0, 500);
-    if (err.message) return err.message;
+    if (err.message) return presentStatus(err.message) || err.message;
   }
   return "The program call failed.";
 }
@@ -381,10 +442,7 @@ function keepReply(text: string): string {
   return text
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trim();
-      return !trimmed.startsWith("warning:") && !/reading additional input from stdin/i.test(trimmed);
-    })
+    .filter((line) => !isCliNoise(line))
     .join("\n")
     .trim();
 }
@@ -394,7 +452,7 @@ function cleanLine(text: string): string {
   return spoken
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("warning:") && !/reading additional input from stdin/i.test(line))
+    .filter((line) => line && !isCliNoise(line))
     .join(" ")
     .replace(/^["']|["']$/g, "")
     .trim();

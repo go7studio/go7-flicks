@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { actionWindow, impactMoments, type Level } from "../src/shared/action";
+import { round3 } from "../src/shared/model";
 
 const exec = promisify(execFile);
 
@@ -32,10 +33,22 @@ export function failureLine(error: unknown): string {
   return (line || "That step stopped.").slice(0, 180);
 }
 
-/** Cut on the loudest later moment in the file. This stays on this computer. */
-export async function trimToAction(file: string, ffmpegPath: string, durationSec: number): Promise<ActionCut> {
-  const impacts = await findImpacts(file, ffmpegPath, durationSec);
-  if (!impacts.length) throw new Error("Could not find a sound or a scene change in that clip.");
+/**
+ * A detected impact cuts on that moment. No impact keeps the file:
+ * from 0 through at most four seconds. Focus stays at 0.5.
+ */
+export function cutFromImpacts(impacts: number[], durationSec: number): ActionCut {
+  if (!impacts.length) {
+    const duration = Number.isFinite(durationSec) ? Math.max(0, durationSec) : 0;
+    return {
+      inSec: 0,
+      outSec: round3(Math.min(4, duration)),
+      momentSec: 0,
+      focus: 0.5,
+      what: "The opening of the clip.",
+      model: "impact",
+    };
+  }
   const moment = impacts.find((sec) => sec >= 1) ?? impacts[impacts.length - 1];
   const range = actionWindow(moment, durationSec);
   return {
@@ -45,6 +58,12 @@ export async function trimToAction(file: string, ffmpegPath: string, durationSec
     what: "The loudest moment in the clip.",
     model: "impact",
   };
+}
+
+/** Cut on the loudest later moment in the file. This stays on this computer. */
+export async function trimToAction(file: string, ffmpegPath: string, durationSec: number): Promise<ActionCut> {
+  const impacts = await findImpacts(file, ffmpegPath, durationSec);
+  return cutFromImpacts(impacts, durationSec);
 }
 
 async function findImpacts(file: string, ffmpegPath: string, durationSec: number): Promise<number[]> {

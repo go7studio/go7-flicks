@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { FlicksApi } from "../shared/api";
 import type { RecentChannel } from "../shared/model";
 import { whenPhrase } from "../shared/when";
 import { StartShell } from "./StartShell";
@@ -15,6 +16,21 @@ type Tool = {
   studio: "ranking" | "split";
 };
 
+type ForgetRecentResult = { ok?: boolean; message?: string };
+
+type HomeLibraryApi = FlicksApi & {
+  forgetRecent: (dir: string) => Promise<ForgetRecentResult | void>;
+};
+
+export function recentRowsAfterForget<T extends { path: string }>(
+  rows: readonly T[],
+  dir: string,
+  result: { ok?: boolean } | null | undefined,
+): T[] {
+  if (result?.ok === true) return rows.filter((item) => item.path !== dir);
+  return [...rows];
+}
+
 const STARTS: Tool[] = [
   {
     title: "Video Ranking",
@@ -23,8 +39,8 @@ const STARTS: Tool[] = [
     studio: "ranking",
   },
   {
-    title: "Split",
-    action: "Start split",
+    title: "Dual video",
+    action: "Start dual",
     art: "split",
     studio: "split",
   },
@@ -112,6 +128,16 @@ export function HomeScreen({
     }
   }
 
+  async function forget(dir: string) {
+    try {
+      const result = await (window.flicks as HomeLibraryApi).forgetRecent(dir);
+      if (result?.ok !== true) setMessage(result?.message || "Could not forget that channel.");
+      setRecent((items) => recentRowsAfterForget(items, dir, result));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not forget that channel.");
+    }
+  }
+
   async function openChannel() {
     const dir = await window.flicks!.pickDirectory();
     if (!dir) return;
@@ -150,15 +176,25 @@ export function HomeScreen({
             {recent.map((item) => {
               const clipped = item.clippedAt ? whenPhrase("Clipped", item.clippedAt) : null;
               const made = item.madeAt ? whenPhrase("Made", item.madeAt) : null;
+              const title = channelTitle(item);
               return (
-                <button key={item.path} className="lib-card" type="button" onClick={() => onOpen(item.path)}>
-                  <span className="lib-card-copy">
-                    <strong>{channelTitle(item)}</strong>
+                <div key={item.path} className="lib-card">
+                  <button type="button" className="btn-ghost lib-card-copy" onClick={() => onOpen(item.path)}>
+                    <strong>{title}</strong>
                     {made ? <span className="lib-when">{made}</span> : null}
                     {clipped ? <span className="lib-when">{clipped}</span> : null}
-                  </span>
-                  <span className="lib-open">Open</span>
-                </button>
+                    <span className="lib-open">Open</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    aria-label={`Forget ${title}`}
+                    title="Takes this channel off the list. The folder stays."
+                    onClick={() => void forget(item.path)}
+                  >
+                    Forget
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -195,6 +231,16 @@ export function HomeScreen({
             ))}
           </div>
           <ModeHint mode={mode} />
+          {mode === "full" ? (
+            <button className="btn start-mode-go" type="button" onClick={() => setNav("library")}>
+              Open a channel
+            </button>
+          ) : null}
+          {mode === "ai" ? (
+            <button className="btn start-mode-go" type="button" onClick={onConnections}>
+              Open connections
+            </button>
+          ) : null}
           <div className="start-pair">
             {STARTS.map((tool) => (
               <button key={tool.title} className="start-primary" type="button" disabled={busy} onClick={() => start(tool)}>
@@ -248,10 +294,10 @@ export function HomeScreen({
 function ModeHint({ mode }: { mode: StartMode }) {
   const line =
     mode === "quick"
-      ? "Quick starts: rank clips or split face and gameplay."
+      ? "Quick starts: rank clips, or face and gameplay."
       : mode === "full"
-        ? "Full is the same two starts. More tools stay inside a channel."
-        : "AI helps on the canvas after you open a flick. Connections holds your keys.";
+        ? "Open a channel for the timeline and the other tools."
+        : "Open connections for the keys. AI helps on the canvas after you open a flick.";
   return <p className="muted tiny">{line}</p>;
 }
 
@@ -268,7 +314,7 @@ function CardArt({ art }: { art: string }) {
       <div className="mini-phone">
         <p className="mini-title">Funniest</p>
         <p className="mini-rank">#5</p>
-        <p className="mini-cap">Clip title</p>
+        <p className="mini-cap">Caption</p>
       </div>
     );
   }

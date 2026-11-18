@@ -88,6 +88,8 @@ export type Flick = {
   tracks: Track[];
   clips: Clip[];
   voiceRelative?: string;
+  /** Where the single voice.mp3 starts on the flick. Omitted on old files. */
+  voiceStartSec?: number;
   musicId?: string;
   musicCredit?: string;
   templateId?: string;
@@ -198,6 +200,12 @@ export function timelineEnd(clips: { startSec: number; inSec: number; outSec: nu
 
 export function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+/** One voice.mp3 for the flick. A missing or negative offset starts at the beginning. */
+export function storedVoiceStart(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
+  return round3(value);
 }
 
 const SUBSCRIPTION_TARGET = /antigravity|cloudcode-pa|gemini\.google\.com/i;

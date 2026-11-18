@@ -32,9 +32,18 @@
 .studio .rank-toolbar strong {
   font-size: 20px;
   font-weight: 750;
+  color: #1c1915;
 }
 
-.studio .btn-gold {
+.studio .timeline-hint {
+  color: #6f675c;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.studio .btn-gold,
+.studio .rank-inspector .btn-primary,
+.studio .btn-primary {
   min-height: 52px;
   padding: 12px 20px;
   background: #e2b340;
@@ -46,13 +55,30 @@
   box-shadow: 0 8px 18px rgba(226, 179, 64, 0.28);
 }
 
-.studio .btn-gold:hover {
+.studio .link-line .btn-primary,
+.studio .rank-inspector .link-line .btn-primary {
+  min-height: 42px;
+  padding: 8px 14px;
+  box-shadow: none;
+}
+
+.studio .btn-gold:hover,
+.studio .rank-inspector .btn-primary:hover,
+.studio .btn-primary:hover {
   background: #d4a433;
   color: #1c1915;
+  border-color: #c9a15b;
+}
+
+.studio .btn-gold:disabled,
+.studio .rank-inspector .btn-primary:disabled,
+.studio .btn-primary:disabled {
+  opacity: 0.55;
 }
 
 .studio.ranking .studio-body {
   grid-template-columns: minmax(200px, 280px) minmax(180px, 1fr) minmax(280px, 340px);
+  gap: 0;
 }
 
 .studio .rank-rail,
@@ -60,26 +86,42 @@
   background: #fffdf8;
 }
 
+.studio .rank-rail {
+  gap: 14px;
+  padding: 16px;
+}
+
+.studio .rank-inspector {
+  gap: 14px;
+  padding: 16px 16px 28px;
+}
+
 .studio .rail-label {
+  margin: 0;
   color: #6f675c;
   font-size: 13px;
   font-weight: 750;
 }
 
+.studio .slot-list,
+.studio .order-stack {
+  gap: 10px;
+}
+
 .studio .count-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
 .studio .count-btn {
   width: 100%;
-  height: 56px;
+  height: 52px;
   border-radius: 14px;
   border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 750;
 }
 
@@ -91,12 +133,13 @@
 
 .studio .slot {
   align-items: center;
-  min-height: 68px;
-  padding: 10px 12px;
-  gap: 10px;
+  min-height: 64px;
+  padding: 12px 14px;
+  gap: 12px;
   background: #fffdf8;
   border: 1px solid #e6dfd2;
   border-radius: 14px;
+  color: #1c1915;
 }
 
 .studio .slot.on {
@@ -106,16 +149,17 @@
 
 .studio .slot b {
   margin-right: 0;
-  min-width: 42px;
-  font-size: 22px;
+  min-width: 40px;
+  font-size: 20px;
   font-weight: 750;
   letter-spacing: -0.03em;
+  color: #1c1915;
 }
 
 .studio .slot-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
   flex: 1;
 }
@@ -128,16 +172,26 @@
   color: #1c1915;
 }
 
-.ranking .slot em {
+.studio .slot em {
   min-width: 0;
   width: auto;
   height: auto;
   padding: 4px 8px;
   font-size: 12px;
+  font-weight: 750;
+  font-style: normal;
   white-space: nowrap;
+  border-radius: 999px;
+  background: #efe8da;
+  color: #1c1915;
 }
 
-.ranking .order-hint {
+.studio .slot.on em {
+  background: #1c1915;
+  color: #f7f3ea;
+}
+
+.studio .order-hint {
   margin: 0;
   color: #6f675c;
   font-size: 13px;
@@ -158,17 +212,36 @@
 .studio .desk-save {
   min-height: 52px;
   border-radius: 14px;
-}
-
-.studio .desk-save {
-  width: 100%;
+  border: 1px solid #e6dfd2;
   background: #fffdf8;
-  border: 1px solid #cfc6b8;
   color: #1c1915;
   font-weight: 650;
 }
 
-.studio .desk-save:hover {
+.studio .order-btn {
+  padding: 12px 14px;
+  gap: 10px;
+}
+
+.studio .order-btn.on,
+.studio .choice.on {
+  background: #f8f1e3;
+  border-color: #1c1915;
+  color: #1c1915;
+}
+
+.studio .desk-save {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #e6dfd2;
+  font-weight: 650;
+}
+
+.studio .desk-save:hover,
+.studio .order-btn:hover,
+.studio .choice:hover,
+.studio .count-btn:hover,
+.studio .slot:hover {
   background: #f8f1e3;
   border-color: #1c1915;
 }
@@ -191,18 +264,21 @@
 .studio .choice {
   padding: 12px 14px;
   font-size: 15px;
+  gap: 12px;
 }
 
 .studio .choice-diagram {
   width: 28px;
   height: 40px;
+  border-radius: 6px;
+  border: 1px solid #e6dfd2;
 }
 
 .studio .phone-column {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
   max-height: 100%;
 }
@@ -230,6 +306,15 @@
 
 .studio .clip-card {
   align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  background: #fffdf8;
+  border: 1px solid #e6dfd2;
+  border-radius: 16px;
+}
+
+.studio .clip-card-main {
+  gap: 10px;
 }
 
 .studio .clip-badge,
@@ -237,18 +322,43 @@
   margin-top: 2px;
 }
 
+.studio .clip-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
 .studio .split-side-label {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
+  left: 10px;
+  top: 10px;
   z-index: 2;
-  padding: 5px 10px;
+  padding: 2px 7px;
   border-radius: 999px;
-  background: rgba(255, 253, 248, 0.94);
-  color: #1c1915;
-  font-size: 13px;
+  background: rgba(255, 253, 248, 0.9);
+  color: #6f675c;
+  font-size: 11px;
   font-weight: 750;
   letter-spacing: 0;
+  pointer-events: none;
+}
+
+.studio .split-side-caption {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 2;
+  transform: translateX(-50%);
+  max-width: 88%;
+  width: max-content;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fffdf8;
+  color: #1c1915;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.2;
+  text-align: center;
   pointer-events: none;
 }
 
@@ -256,6 +366,7 @@
   display: block;
   font-size: 16px;
   letter-spacing: -0.02em;
+  color: #1c1915;
 }
 
 .studio .clip-file {
@@ -269,6 +380,7 @@
 .studio .desk-words {
   width: 100%;
   min-width: 0;
+  gap: 6px;
 }
 
 .studio .desk-words > span {
@@ -284,36 +396,218 @@
 .studio .plus {
   width: 44px;
   height: 44px;
+  border-radius: 12px;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
+}
+
+.studio .nudge:hover,
+.studio .plus:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
 }
 
 .studio .rank-inspector .field,
-.studio .rank-inspector textarea.field {
+.studio .rank-inspector textarea.field,
+.studio .rank-inspector select.field {
   min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
+}
+
+.studio .rank-inspector label.stack > span:first-child,
+.studio .rank-inspector .field-label,
+.studio .rank-inspector .toggle-line > span,
+.studio .rank-inspector .add-line > span,
+.studio .rank-inspector .clock > span,
+.studio .rank-inspector .nudge-row > span {
+  color: #1c1915;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .studio .rank-inspector .add-line {
+  min-height: 52px;
+  padding: 8px 10px 8px 14px;
   background: #fffdf8;
-  border-color: #e6dfd2;
+  border: 1px solid #e6dfd2;
+  border-radius: 14px;
 }
 
+.studio .link-line {
+  gap: 10px;
+}
+
+.studio .link-line .btn,
+.studio .link-line .btn-small {
+  min-height: 42px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
+  font-weight: 650;
+}
+
+.studio .link-line .btn:hover,
+.studio .link-line .btn-small:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
+}
+
+.studio .inout {
+  gap: 10px;
+}
+
+.studio .clock .field {
+  min-height: 42px;
+}
+
+.studio .nudge-row {
+  gap: 10px;
+  min-height: 44px;
+}
+
+.studio .switch {
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid #e6dfd2;
+  background: #efe8da;
+}
+
+.studio .switch.on {
+  background: #1c1915;
+  border-color: #1c1915;
+}
+
+.studio .clip-sound {
+  min-height: 36px;
+  gap: 10px;
+  color: #1c1915;
+}
+
+.studio .clip-sound-word {
+  color: #1c1915;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.studio .clip-add {
+  gap: 4px;
+  color: #1c1915;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+/* Same gold hairline and 28px radius as the base phone and the canvas frame. */
 .studio .phone {
-  border: 12px solid #1c1915;
-  border-radius: 40px;
-  background: #111;
-  box-shadow: 0 28px 60px rgba(28, 25, 21, 0.2), inset 0 0 0 2px rgba(255, 255, 255, 0.16);
+  border: 1px solid #e2b340;
+  border-radius: 28px;
+  background: #fffdf8;
+  box-shadow: 0 18px 40px rgba(36, 28, 20, 0.08);
+}
+
+.studio .phone-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  margin: 0;
+  height: auto;
+  background: transparent;
+  color: #6f675c;
+  font-size: 16px;
+  font-weight: 650;
+  pointer-events: none;
+}
+
+.studio .desk-play {
+  gap: 12px;
 }
 
 .studio .desk-play .btn-gold {
   min-height: 44px;
   padding: 10px 16px;
+}
+
+.studio .desk-play-all {
+  min-height: 44px;
+  min-width: 112px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid #1c1915;
   background: #fffdf8;
   color: #1c1915;
-  border: 1px solid #cfc6b8;
-  box-shadow: none;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.studio .desk-play-all:hover {
+  background: #f8f1e3;
+}
+
+.studio .desk-clock {
+  color: #1c1915;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.studio .which-clip,
+.studio .style-block {
+  border: 1px solid #e6dfd2;
+  border-radius: 14px;
+  background: #fffdf8;
+}
+
+.studio .style-block {
+  background: #f7f3ea;
+  border-radius: 16px;
+  gap: 12px;
+  padding: 14px;
+}
+
+.studio .style-block .rail-label,
+.studio .which-clip .rail-label {
+  color: #1c1915;
+}
+
+.studio .style-block .style-paste {
+  min-height: 40px;
+  border-radius: 12px;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
   font-weight: 650;
 }
 
-.studio .desk-play .btn-gold:hover {
-  background: #f8f1e3;
-  color: #1c1915;
+.studio .file-note,
+.studio .muted {
+  color: #6f675c;
+}
+
+/* Visible focus for desk controls */
+.studio .home-back:focus-visible,
+.studio .btn-gold:focus-visible,
+.studio .btn-primary:focus-visible,
+.studio .rank-inspector .btn-primary:focus-visible,
+.studio .btn:focus-visible,
+.studio .btn-small:focus-visible,
+.studio .count-btn:focus-visible,
+.studio .slot:focus-visible,
+.studio .order-btn:focus-visible,
+.studio .choice:focus-visible,
+.studio .desk-save:focus-visible,
+.studio .desk-play-all:focus-visible,
+.studio .nudge:focus-visible,
+.studio .plus:focus-visible,
+.studio .switch:focus-visible,
+.studio .field:focus-visible,
+.studio .phone:focus-visible,
+.studio input[type="range"]:focus-visible,
+.studio input[type="color"]:focus-visible {
+  outline: 2px solid #e2b340;
+  outline-offset: 2px;
 }

@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { exportCut, resolveAsset } from "./cut";
+import { exportCut, resolveAsset, styledVoiceStart } from "./cut";
 import { downloadClip, searchSubject } from "./download";
 import { clipLink } from "../src/shared/link";
 import {
@@ -22,8 +22,12 @@ import {
   markConnection,
   openChannel,
   readChannel,
+  deleteFlick,
+  duplicateFlick,
+  forgetRecent,
   readFlick,
   recentChannels,
+  removeMedia,
   saveConnection,
   saveFlick,
   saveTemplate,
@@ -42,7 +46,7 @@ import { askAssistant, synthesize, testProvider, writeLine } from "./providers";
 import { seedMachineAccounts } from "./seed-accounts";
 import { renderFlick } from "./styled";
 import type { FlickProps } from "../src/remotion/FlickComposition";
-import type { ChannelFile, ConnectionDraft, Flick, MediaAsset } from "../src/shared/model";
+import { storedVoiceStart, type ChannelFile, type ConnectionDraft, type Flick, type MediaAsset } from "../src/shared/model";
 import { subjectCount } from "../src/shared/subject";
 
 const gate: MediaGate = { channelDir: null, channel: null, stagingDir: null };
@@ -65,6 +69,50 @@ function usedMediaIds(flick: Flick): Set<string> {
   }
   if (flick.musicId) ids.add(flick.musicId);
   return ids;
+}
+
+/** A clip that already points at this link, with the file still on disk. */
+function storedClipFile(dir: string, url: string): { asset: MediaAsset; file: string } | null {
+  let want: string;
+  try {
+    want = clipLink(url);
+  } catch {
+    return null;
+  }
+  let channel: ChannelFile;
+  try {
+    channel = readChannel(dir);
+  } catch {
+    return null;
+  }
+  for (const summary of channel.flicks) {
+    let flick: Flick;
+    try {
+      flick = readFlick(dir, summary.id);
+    } catch {
+      continue;
+    }
+    for (const clip of flick.clips) {
+      if (!clip.mediaId || !clip.sourceUrl) continue;
+      let storedUrl: string;
+      try {
+        storedUrl = clipLink(clip.sourceUrl);
+      } catch {
+        continue;
+      }
+      if (storedUrl !== want) continue;
+      const asset = channel.media.find((item) => item.id === clip.mediaId);
+      const file = resolveAsset(dir, asset);
+      if (!asset || !file || !fs.existsSync(file) || !fs.statSync(file).isFile()) continue;
+      return { asset, file };
+    }
+  }
+  return null;
+}
+
+function fileInside(root: string, file: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(file));
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 async function localAsset(dir: string, asset: MediaAsset): Promise<MediaAsset> {
@@ -141,6 +189,7 @@ async function flickProps(dir: string, channel: ChannelFile, flick: Flick, previ
       outSec: clip.outSec,
       label: clip.label,
       line: clip.line,
+      fileName: asset?.name,
       focus: clip.focus,
       src: absolute ? fileUrl(absolute) : undefined,
     });
@@ -171,6 +220,7 @@ async function flickProps(dir: string, channel: ChannelFile, flick: Flick, previ
     tracks: flick.tracks,
     clips,
     voiceSrc: voiceLocal ? fileUrl(voiceLocal) : undefined,
+    voiceStartSec: styledVoiceStart(flick),
     musicSrc: musicLocal ? fileUrl(musicLocal) : undefined,
     musicCredit: musicLocal ? flick.musicCredit?.trim() || undefined : undefined,
     preview,
@@ -327,9 +377,18 @@ function registerIpc(): void {
       for (const hit of hits) {
         if (landed.length >= want) break;
         try {
-          const got = await downloadClip(hit.url, gpu.ffmpegPath, path.join(userDir(), "bin"));
-          cleanups.push(got.cleanup);
-          const info = await probeMedia(got.file, gpu.ffmpegPath);
+          const stored = storedClipFile(dir, hit.url);
+          let file: string;
+          let asset: MediaAsset | null = null;
+          if (stored) {
+            file = stored.file;
+            asset = stored.asset;
+          } else {
+            const got = await downloadClip(hit.url, gpu.ffmpegPath, path.join(userDir(), "bin"));
+            cleanups.push(got.cleanup);
+            file = got.file;
+          }
+          const info = await probeMedia(file, gpu.ffmpegPath);
           if (info.width < 2 || info.height < 2 || info.durationSec < 0.4) {
             lastError = "That result was not a video.";
             continue;
@@ -338,9 +397,9 @@ function registerIpc(): void {
             lastError = "That clip is too long.";
             continue;
           }
-          const cut = await trimToAction(got.file, gpu.ffmpegPath, info.durationSec);
-          const asset = importMedia(dir, got.file, "copy", info);
-          landed.push({ asset, sourceUrl: hit.url, title: hit.title, inSec: cut.inSec, outSec: cut.outSec, focus: cut.focus });
+          const cut = await trimToAction(file, gpu.ffmpegPath, info.durationSec);
+          const kept = asset ?? importMedia(dir, file, "copy", info);
+          landed.push({ asset: kept, sourceUrl: hit.url, title: hit.title, inSec: cut.inSec, outSec: cut.outSec, focus: cut.focus });
         } catch (error) {
           lastError = failureLine(error);
         }
@@ -382,6 +441,13 @@ function registerIpc(): void {
     try {
       const gpu = await probeGpu();
       if (!gpu.ffmpegPath) throw new Error("ffmpeg is not available to read that file.");
+      const stored = storedClipFile(dir, url);
+      if (stored) {
+        const channel = watch(dir);
+        const media = await present(dir, channel, new Set([stored.asset.id]));
+        const workingCopy = media.find((item) => item.id === stored.asset.id)?.workingCopy ?? false;
+        return { ok: true as const, message: stored.asset.name, asset: stored.asset, media, workingCopy, sourceUrl: clipLink(url) };
+      }
       const got = await downloadClip(url, gpu.ffmpegPath, path.join(userDir(), "bin"));
       cleanup = got.cleanup;
       const info = await probeMedia(got.file, gpu.ffmpegPath);
@@ -530,7 +596,7 @@ function registerIpc(): void {
       return fail(error);
     }
   });
-  ipcMain.handle("ai:voice", async (_event, connectionId: string, dir: string, flickId: string, text: string) => {
+  ipcMain.handle("ai:voice", async (_event, connectionId: string, dir: string, flickId: string, text: string, startSec?: number) => {
     try {
       if (!text.trim()) throw new Error("Write a line before making a voice.");
       const connection = getConnection(connectionId);
@@ -542,6 +608,7 @@ function registerIpc(): void {
       await synthesize(connection, key, text.trim(), dest);
       const flick = readFlick(dir, flickId);
       flick.voiceRelative = "voice.mp3";
+      flick.voiceStartSec = storedVoiceStart(startSec);
       saveFlick(dir, flick);
       const local = await stageSource(dest, useStaging());
       return {
@@ -549,6 +616,7 @@ function registerIpc(): void {
         message: "Voice saved.",
         relativePath: "voice.mp3",
         previewUrl: fileUrl(local),
+        voiceStartSec: flick.voiceStartSec,
       };
     } catch (error) {
       return fail(error);
@@ -564,6 +632,59 @@ function registerIpc(): void {
   ipcMain.handle("export:styled", async (_event, dir: string, flickId: string, outputPath: string) => {
     try {
       return await exportFile("styled", dir, flickId, outputPath);
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("recents:forget", async (_event, dir: string) => {
+    try {
+      forgetRecent(dir);
+      return { ok: true as const, message: "Removed." };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("channel:rename", async (_event, dir: string, name: string) => {
+    try {
+      const channel = updateChannel(dir, { name });
+      watch(dir);
+      return { ok: true as const, channel, media: await present(dir, channel) };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("flick:duplicate", async (_event, dir: string, flickId: string) => {
+    try {
+      watch(dir);
+      return { ok: true as const, flick: duplicateFlick(dir, flickId) };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("flick:delete", async (_event, dir: string, flickId: string) => {
+    try {
+      watch(dir);
+      deleteFlick(dir, flickId);
+      const channel = watch(dir);
+      return { ok: true as const, message: "Removed.", channel };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("media:remove", async (_event, dir: string, mediaId: string) => {
+    try {
+      const channel = watch(dir);
+      const asset = channel.media.find((item) => item.id === mediaId);
+      if (!asset) throw new Error("That file is missing.");
+      for (const summary of channel.flicks) {
+        const flick = readFlick(dir, summary.id);
+        if (flick.clips.some((clip) => clip.mediaId === mediaId)) throw new Error("That file is still on a flick.");
+      }
+      const file = resolveAsset(dir, asset);
+      removeMedia(dir, mediaId);
+      if (file && fileInside(dir, file) && fs.existsSync(file)) fs.rmSync(file, { force: true });
+      const next = watch(dir);
+      return { ok: true as const, message: "Removed.", media: await present(dir, next) };
     } catch (error) {
       return fail(error);
     }

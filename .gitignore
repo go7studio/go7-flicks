@@ -9,3 +9,17 @@ resources/ffmpeg
 out/
 tmp/
 docs/polish-shots/
+
+.env
+.env.*
+!.env.example
+provider-keys
+provider-keys.*
+**/secrets/*.bin
+connections.json
+*.pem
+*.key
+credentials.json
+service-account*.json
+id_rsa
+*.p12
