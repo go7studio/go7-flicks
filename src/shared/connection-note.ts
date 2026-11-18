@@ -4,6 +4,7 @@ export function isCliNoise(line: string): boolean {
   if (/^warning:/i.test(trimmed)) return true;
   if (/no stdin data received/i.test(trimmed)) return true;
   if (/reading additional input from stdin/i.test(trimmed)) return true;
+  if (/cursor-retrieval:\s*tracing/i.test(trimmed)) return true;
   return false;
 }
 

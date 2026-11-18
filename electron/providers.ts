@@ -306,13 +306,16 @@ function collectSpawn(
   });
 }
 
-function winCommand(file: string, args: string[]): string {
-  const parts = [file, ...args].map((part) => {
-    if (!part) return '""';
-    if (!/[\s"&|<>^]/.test(part)) return part;
-    return `"${part.replaceAll('"', '""')}"`;
-  });
+/** One cmd.exe /c string. A newline would end the command, so a prompt stays one argument. */
+export function winCommand(file: string, args: string[]): string {
+  const parts = [file, ...args].map((part) => quoteCmdArg(part.replace(/\r?\n/g, " ")));
   return `"${parts.join(" ")}"`;
+}
+
+function quoteCmdArg(part: string): string {
+  if (!part) return '""';
+  if (!/[\s"&|<>^]/.test(part)) return part;
+  return `"${part.replaceAll('"', '""')}"`;
 }
 
 function commandText(error: unknown): string {

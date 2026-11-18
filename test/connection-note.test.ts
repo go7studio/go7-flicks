@@ -18,3 +18,8 @@ test("a clean connection note stays as it is", () => {
   assert.equal(connectionNote("codex", "Not tested yet."), "Not tested yet.");
   assert.equal(connectionNote("claude", ""), "");
 });
+
+test("a cursor trace path does not sit on the reply", () => {
+  const raw = "STRONGEST: c1\ncursor-retrieval: tracing to 'C:\\\\Temp\\\\cursor_retrieval.log'";
+  assert.equal(presentStatus(raw), "STRONGEST: c1");
+});
