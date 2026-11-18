@@ -1,3 +1,24 @@
+/** The words after Codex's transcript marker. A plain reply is kept as it is. */
+export function codexReply(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const start = lines.lastIndexOf("codex");
+  if (start >= 0) {
+    const body: string[] = [];
+    for (const line of lines.slice(start + 1)) {
+      if (/^tokens used\b/i.test(line)) break;
+      if (isCliNoise(line)) continue;
+      body.push(line);
+    }
+    return body.join(" ").replace(/\s+/g, " ").trim();
+  }
+  const kept = lines.filter((line) => !isCliNoise(line));
+  if (lines.some((line) => /^OpenAI Codex\b/i.test(line) || line === "--------")) return "";
+  return kept.join(" ").replace(/\s+/g, " ").trim();
+}
+
 /** CLI chatter that should not sit on a connection row. */
 export function isCliNoise(line: string): boolean {
   const trimmed = line.trim();
@@ -5,6 +26,10 @@ export function isCliNoise(line: string): boolean {
   if (/no stdin data received/i.test(trimmed)) return true;
   if (/reading additional input from stdin/i.test(trimmed)) return true;
   if (/cursor-retrieval:\s*tracing/i.test(trimmed)) return true;
+  if (/^OpenAI Codex\b/i.test(trimmed)) return true;
+  if (trimmed === "--------") return true;
+  if (/^(workdir|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id):\s+\S+$/i.test(trimmed)) return true;
+  if (/^tokens used\b/i.test(trimmed)) return true;
   return false;
 }
 

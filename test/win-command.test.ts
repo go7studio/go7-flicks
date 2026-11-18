@@ -3,7 +3,24 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { startCli, winCommand } from "../electron/providers";
+import { codexExecArgs, startCli, winCommand } from "../electron/providers";
+
+test("codex exec writes the last message beside the prompt", () => {
+  const args = codexExecArgs("gpt-5.6-terra", "C:\\Temp\\last.txt", "Reply with the single word ok.");
+  assert.deepEqual(args.slice(0, 10), [
+    "exec",
+    "--color",
+    "never",
+    "--model",
+    "gpt-5.6-terra",
+    "--skip-git-repo-check",
+    "-c",
+    "model_reasoning_effort=low",
+    "-o",
+    "C:\\Temp\\last.txt",
+  ]);
+  assert.equal(args.at(-1), "Reply with the single word ok.");
+});
 
 test("a windows command keeps every sentence of a prompt", () => {
   const line = winCommand("C:\\Tools\\cursor-agent.cmd", ["-p", "First sentence.\nSecond sentence. id=c1 name=Dogs"]);

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { connectionNote, isCliNoise, presentStatus } from "../src/shared/connection-note";
+import { codexReply, connectionNote, isCliNoise, presentStatus } from "../src/shared/connection-note";
 import { subscriptionRefusal, type ConnectionPublic, type VoiceOption } from "../src/shared/model";
 
 export type ProviderTest = {
@@ -170,21 +170,36 @@ async function runCli(connection: ConnectionPublic, prompt: string, maxTokens = 
       args.push(prompt);
       return await runCommand(bin, args, scratch);
     }
-    const args = claude
-      ? ["-p", prompt]
-      : [
-          "exec",
-          "--model",
-          connection.model.trim() || "gpt-5.6-terra",
-          "--skip-git-repo-check",
-          "-c",
-          "model_reasoning_effort=low",
-          prompt,
-        ];
-    return await runCommand(bin, args, scratch);
+    if (!claude) {
+      const lastMessage = path.join(scratch, "last-message.txt");
+      const result = await startCli(bin, codexExecArgs(connection.model, lastMessage, prompt), scratch, 120000);
+      if (result.code !== 0) throw commandFailure(result);
+      const written = fs.existsSync(lastMessage) ? fs.readFileSync(lastMessage, "utf8").trim() : "";
+      if (written) return written;
+      const parsed = codexReply(`${result.stdout}\n${result.stderr}`);
+      if (parsed) return parsed;
+      throw new Error("Codex returned nothing.");
+    }
+    return await runCommand(bin, ["-p", prompt], scratch);
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+export function codexExecArgs(model: string, lastMessagePath: string, prompt: string): string[] {
+  return [
+    "exec",
+    "--color",
+    "never",
+    "--model",
+    model.trim() || "gpt-5.6-terra",
+    "--skip-git-repo-check",
+    "-c",
+    "model_reasoning_effort=low",
+    "-o",
+    lastMessagePath,
+    prompt,
+  ];
 }
 
 function cliBinary(kind: string): string | null {
