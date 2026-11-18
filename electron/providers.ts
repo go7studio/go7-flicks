@@ -18,6 +18,7 @@ export async function testProvider(connection: ConnectionPublic, key: string | n
   if (connection.auth === "cli") return testCli(connection);
   if (!key) return { ok: false, message: "Add an API key first." };
   if (connection.kind === "elevenlabs") return testEleven(connection, key);
+  if (connection.kind === "minimax") return testMiniMax(connection, key);
   if (connection.api === "anthropic-messages") return testAnthropic(connection, key, "Reply with the single word ok.");
   return testOpenAI(connection, key, "Reply with the single word ok.");
 }
@@ -28,6 +29,9 @@ export async function writeLine(connection: ConnectionPublic, key: string | null
   if (connection.auth === "cli") {
     const text = await runCli(connection, prompt);
     return cleanLine(text);
+  }
+  if (connection.kind === "elevenlabs" || connection.kind === "minimax") {
+    throw new Error("ElevenLabs and MiniMax stay voice. Pick Claude, Codex, Grok, or Cursor.");
   }
   if (!key) throw new Error("Add an API key first.");
   if (connection.api === "anthropic-messages") {
@@ -396,6 +400,45 @@ async function testOpenAI(
   const raw = body?.choices?.[0]?.message?.content ?? "";
   const text = keep ? keepReply(raw) : cleanLine(raw);
   return { ok: text.length > 0, message: text || "The host returned nothing." };
+}
+
+type MiniMaxVoiceBody = {
+  system_voice?: { voice_id?: string; voice_name?: string }[];
+  voice_cloning?: { voice_id?: string; voice_name?: string }[];
+  voice_generation?: { voice_id?: string; voice_name?: string }[];
+  base_resp?: { status_code?: number; status_msg?: string };
+};
+
+/** Voice list from POST /v1/get_voice. No audio is generated. */
+export function readMiniMaxVoices(body: MiniMaxVoiceBody | null, preferredVoiceId: string): ProviderTest {
+  const code = body?.base_resp?.status_code;
+  if (!body || (typeof code === "number" && code !== 0)) {
+    const detail = body?.base_resp?.status_msg || "MiniMax rejected the key.";
+    const message = typeof code === "number" && code !== 0 && !detail.includes(String(code)) ? `${detail} (${code})` : detail;
+    return { ok: false, message };
+  }
+  const voices = [body.system_voice, body.voice_cloning, body.voice_generation]
+    .flatMap((group) => group ?? [])
+    .filter((voice) => voice.voice_id)
+    .slice(0, 40)
+    .map((voice) => ({ id: voice.voice_id as string, name: voice.voice_name || (voice.voice_id as string) }));
+  if (!voices.length) return { ok: false, message: "MiniMax returned no voices." };
+  const voiceId = voices.some((voice) => voice.id === preferredVoiceId) ? preferredVoiceId : voices[0].id;
+  return { ok: true, message: `Found ${voices.length} voices.`, voices, voiceId };
+}
+
+async function testMiniMax(connection: ConnectionPublic, key: string): Promise<ProviderTest> {
+  const response = await fetch(joinUrl(connection.baseUrl, "/v1/get_voice"), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({ voice_type: "system" }),
+  });
+  const body = (await response.json().catch(() => null)) as MiniMaxVoiceBody | null;
+  if (!response.ok && !body?.base_resp) return { ok: false, message: `MiniMax returned ${response.status}.` };
+  return readMiniMaxVoices(body, connection.voiceId || "English_expressive_narrator");
 }
 
 async function testEleven(connection: ConnectionPublic, key: string): Promise<ProviderTest> {

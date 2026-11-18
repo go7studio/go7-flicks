@@ -575,7 +575,9 @@ function registerIpc(): void {
       if (!prompt.trim() || prompt.length > 8000) throw new Error("That line request is empty.");
       const connection = getConnection(connectionId);
       if (!connection.connected) throw new Error("Test this connection first.");
-      if (connection.kind === "elevenlabs") throw new Error("Pick a chat connection, not ElevenLabs.");
+      if (connection.kind === "elevenlabs" || connection.kind === "minimax") {
+        throw new Error("ElevenLabs and MiniMax stay voice. Pick Claude, Codex, Grok, or Cursor.");
+      }
       const text = await writeLine(connection, connectionKey(connectionId), prompt);
       return { ok: true as const, message: "Line written.", text };
     } catch (error) {

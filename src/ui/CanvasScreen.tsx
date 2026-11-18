@@ -1281,7 +1281,7 @@ export function CanvasScreen({
                 <select className="field" value={chatId} onChange={(event) => setChatId(event.target.value)}>
                   <option value="">Choose</option>
                   {connections
-                    .filter((row) => row.kind !== "elevenlabs")
+                    .filter((row) => row.kind !== "elevenlabs" && row.kind !== "minimax")
                     .map((row) => (
                       <option key={row.id} value={row.id}>
                         {row.name}

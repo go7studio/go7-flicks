@@ -360,13 +360,18 @@ export function ConnectionsScreen({
                     {form.kind === "other" ? (
                       <p className="muted tiny">A Gemini API key can go on this row.</p>
                     ) : null}
-                    <label className="stack">
-                      <span>Format</span>
-                      <select className="field" value={form.api} onChange={(event) => setForm({ ...form, api: event.target.value as ChatApi })}>
-                        <option value="openai-completions">OpenAI-style chat</option>
-                        <option value="anthropic-messages">Anthropic messages</option>
-                      </select>
-                    </label>
+                    {form.kind === "minimax" ? (
+                      <p className="muted tiny">Test lists MiniMax voices. It does not send a chat.</p>
+                    ) : null}
+                    {form.kind === "elevenlabs" || form.kind === "minimax" ? null : (
+                      <label className="stack">
+                        <span>Format</span>
+                        <select className="field" value={form.api} onChange={(event) => setForm({ ...form, api: event.target.value as ChatApi })}>
+                          <option value="openai-completions">OpenAI-style chat</option>
+                          <option value="anthropic-messages">Anthropic messages</option>
+                        </select>
+                      </label>
+                    )}
                     <div className="actions">
                       <button className="btn-primary" type="submit" disabled={busy === slot.key}>
                         Save
