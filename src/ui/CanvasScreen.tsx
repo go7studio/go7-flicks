@@ -58,6 +58,20 @@ function laneKind(name: string): LaneKind {
   return "other";
 }
 
+/** Words on the clip card. Rank is the main picture. Loop is the other region. */
+function clipSpot(name: string): { use: string; plus: string; spot: string } {
+  const key = name.trim().toLowerCase();
+  if (key === "rank" || key === "video") return { use: "Use as the video", plus: "+ Video", spot: "the video" };
+  if (key === "loop") return { use: "Use as the loop", plus: "+ Loop", spot: "the loop" };
+  if (key === "top") return { use: "Use as the top", plus: "+ Top", spot: "the top" };
+  if (key === "bottom") return { use: "Use as the bottom", plus: "+ Bottom", spot: "the bottom" };
+  if (key === "face") return { use: "Use as the face", plus: "+ Face", spot: "the face" };
+  if (key === "gameplay" || key === "game") return { use: "Use as the game", plus: "+ Game", spot: "the game" };
+  const clean = name.trim();
+  if (!clean || /^(place|append|rank)$/i.test(clean)) return { use: "Use as the video", plus: "+ Video", spot: "the video" };
+  return { use: `Use as the ${clean}`, plus: `+ ${clean}`, spot: `the ${clean}` };
+}
+
 function shelfTitle(fileName: string, peers: { id: string; name: string }[] = [], selfId = ""): string {
   const parts = shelfName(fileName, peers, selfId);
   return parts.mark ? `${parts.title} ${parts.mark}` : parts.title;
@@ -1283,7 +1297,7 @@ export function CanvasScreen({
           <div className="shelf-sticky">
             <div className="shelf-head">
               <h2>Clips</h2>
-              <p className="shelf-purpose">Place these on the timeline.</p>
+              <p className="shelf-purpose">Put these on the timeline.</p>
             </div>
             <label className="shelf-search">
               <span className="sr-only">Find a clip</span>
@@ -1346,34 +1360,32 @@ export function CanvasScreen({
                     {flick.tracks.map((track) => {
                       const region = flick.regions.find((item) => item.trackId === track.id);
                       const selectedHere = Boolean(region && region.id === selectedRegion);
-                      const where = track.name.trim() || "Track";
-                      const placeLabel = flick.tracks.length === 1 ? "Place" : `Place · ${where}`;
+                      const spot = clipSpot(track.name);
                       return (
                         <button
                           key={track.id}
                           type="button"
                           className={selectedHere ? "btn shelf-place on" : "btn shelf-place"}
-                          title={`Fills the selected cut on ${where}, or the first empty cut. If that track is already full, this adds a cut at the end.`}
+                          title={`Fills the selected cut on ${spot.spot}, or the first empty cut. If that track is already full, this adds a cut at the end.`}
                           onClick={() => void addToTrack(asset, track.id, "place")}
                         >
-                          {placeLabel}
+                          {spot.use}
                         </button>
                       );
                     })}
                   </div>
                   <div className="shelf-places">
                     {flick.tracks.map((track) => {
-                      const where = track.name.trim() || "Track";
-                      const appendLabel = flick.tracks.length === 1 ? "Append" : `Append · ${where}`;
+                      const spot = clipSpot(track.name);
                       return (
                         <button
                           key={track.id}
                           type="button"
                           className="btn shelf-place"
-                          title={`Adds this clip after the last cut on ${where}.`}
+                          title={`Adds this clip after the last cut on ${spot.spot}.`}
                           onClick={() => void addToTrack(asset, track.id, "append")}
                         >
-                          {appendLabel}
+                          {spot.plus}
                         </button>
                       );
                     })}

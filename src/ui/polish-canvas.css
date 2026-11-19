@@ -259,12 +259,17 @@
 }
 
 .app.canvas-screen .shelf-place {
-  min-height: 34px;
+  min-height: 36px;
   border-radius: 8px;
   background: #fffdf8;
   border-color: #cfc6b8;
   color: #1c1915;
   font-weight: 650;
+  font-size: 13px;
+  line-height: 1.15;
+  padding: 7px 6px;
+  white-space: normal;
+  text-wrap: balance;
 }
 
 .app.canvas-screen .shelf-place:hover {
