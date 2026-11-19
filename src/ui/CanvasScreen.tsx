@@ -1148,7 +1148,7 @@ export function CanvasScreen({
       const draft: CanvasPanes = { ...panesRef.current };
       if (which === "shelf") draft.shelf = start.shelf + (ev.clientX - originX);
       else if (which === "inspector") draft.inspector = start.inspector - (ev.clientX - originX);
-      else draft.timeline = timelineStart + (ev.clientY - originY);
+      else draft.timeline = timelineStart - (ev.clientY - originY);
       const next = clampDraggedPane(draft, which, live.width, live.height);
       const current = panesRef.current;
       if (next.shelf === current.shelf && next.inspector === current.inspector && next.timeline === current.timeline) return;
