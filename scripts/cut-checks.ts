@@ -1,4 +1,5 @@
 import { readWhichClip } from "../src/shared/assist";
+import { skipSubjectTitle } from "../src/shared/subject";
 
 /** Labels the desks must show. The unit test reads the source. The live script reads the window. */
 export const HOME_LABELS = ["Video Ranking", "Dual video"] as const;
@@ -89,6 +90,53 @@ export function refusesKeeper(filePath: string): boolean {
   if (KEEPER_FILES.has(base)) return true;
   if (norm.includes(PARKOUR_FLICK) && base === "voice.mp3") return true;
   return false;
+}
+
+export const GTA_SUBJECT = "GTA gameplay fails";
+export const GTA_EXPORT_NAME = "gta-gameplay-fails-cut.mp4";
+
+/** Short public gameplay clips. Used only when Find clips returns trailers or news. */
+export const GTA_FALLBACK_LINKS = [
+  "https://www.youtube.com/shorts/oMgPeaMRYVY",
+  "https://www.youtube.com/shorts/UPsyZbb0mfY",
+] as const;
+
+const GTA_OFF = [
+  /\btrailers?\b/i,
+  /\bteasers?\b/i,
+  /\bnews\b/i,
+  /\bcompilations?\b/i,
+  /\bmontage\b/i,
+  /\bofficial\b/i,
+  /\bcinematic\b/i,
+  /\breveal\b/i,
+];
+
+/** A short gameplay clip. Trailers, news desks, compilations, and long files stay out. */
+export function gameplayClipOk(title: string, durationSec: number | null, subject = GTA_SUBJECT): boolean {
+  if (!title.trim()) return false;
+  if (durationSec !== null && (!Number.isFinite(durationSec) || durationSec < 2 || durationSec > 90)) return false;
+  if (GTA_OFF.some((pattern) => pattern.test(title))) return false;
+  if (skipSubjectTitle(title, subject)) return false;
+  return titleAboutSubject(title, subject);
+}
+
+/** A few seconds around the action, never the whole long file. */
+export function fewSecondsAround(inSec: number, outSec: number, durationSec: number): { inSec: number; outSec: number } {
+  const duration = durationSec > 0 ? durationSec : Math.max(outSec, 4);
+  let start = Number.isFinite(inSec) ? Math.max(0, inSec) : 0;
+  let end = Number.isFinite(outSec) ? outSec : start + 4;
+  if (end > duration) end = duration;
+  if (end - start > 6) end = Math.min(duration, start + 4);
+  if (end - start < 0.8) {
+    start = Math.max(0, Math.min(start, Math.max(0, duration - 3)));
+    end = Math.min(duration, start + 4);
+  }
+  if (end < start + 0.4) end = Math.min(duration, start + 0.4);
+  return {
+    inSec: Math.round(start * 1000) / 1000,
+    outSec: Math.round(Math.max(start + 0.4, end) * 1000) / 1000,
+  };
 }
 
 const OPTIONAL_SUBJECT_WORDS = new Set(["funny", "fails", "fail"]);

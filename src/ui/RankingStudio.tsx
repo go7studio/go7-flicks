@@ -10,7 +10,6 @@ import {
   lineSizeOf,
   playbackOrder,
   rankingClipRange,
-  shelfName,
   shuffleIds,
   slotRank,
   spokenLine,
@@ -29,6 +28,7 @@ import { round3, uid, type Clip, type Flick, type Template } from "../shared/mod
 import type { ResolvedMedia } from "../shared/api";
 import { captionFromFile, headlineFromFlick, openDeskFlick, titleFromClip } from "../remotion/FlickComposition";
 import type { AssistClip } from "../shared/assist";
+import { formatClock, phoneHeadline, rankingStartId, slotListTitle, slotTimeLine } from "../shared/desk";
 import { placeFoundClips, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
 import { whenPhrase } from "../shared/when";
 import "./polish-desks.css";
@@ -68,33 +68,12 @@ function makeSlots(count: number): Slot[] {
   }));
 }
 
-function formatSpan(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
-  if (seconds < 60) {
-    const rounded = Math.round(seconds * 10) / 10;
-    return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}s`;
-  }
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.round(seconds % 60);
-  return `${mins}:${String(secs).padStart(2, "0")}`;
-}
-
 function orderWords(mode: PlaybackMode, rows: { id: string; rank: number }[]): string {
   if (mode === "countdown") return "Plays the highest rank first.";
   if (mode === "listed") return "Plays the slots from the top of the list.";
   if (mode === "shuffle") return "Plays a mixed order. Rank numbers stay.";
   const ranks = playbackOrder(rows, "skip").map((item) => item.rank);
   return `Plays ${ranks.join(", then ")}.`;
-}
-
-function formatClock(seconds: number): string {
-  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-  const totalCs = Math.round(safe * 100);
-  const cs = totalCs % 100;
-  const totalSecs = Math.floor(totalCs / 100);
-  const secs = totalSecs % 60;
-  const mins = Math.floor(totalSecs / 60);
-  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
 function clampOut(next: number, inSec: number, duration: number): number {
@@ -476,23 +455,11 @@ export function RankingStudio({
     const start = mode === "cut" ? Math.max(0, target.inSec) : 0;
     const end = mode === "cut" ? target.outSec : (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : target.duration || target.outSec);
     const outside = video.currentTime < start - 0.05 || video.currentTime >= end - 0.08;
-    if ((fromStart || outside) && Math.abs(video.currentTime - start) >= 0.05) {
+    if (fromStart || outside) {
       readySlot.current = null;
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          video.removeEventListener("seeked", finish);
-          window.clearTimeout(timer);
-          resolve();
-        };
-        const timer = window.setTimeout(finish, 800);
-        video.addEventListener("seeked", finish);
-        video.currentTime = start;
-      });
+      setNowSec(start);
+      if (Math.abs(video.currentTime - start) >= 0.05) video.currentTime = start;
     }
-    if (fromStart || outside) setNowSec(start);
     readySlot.current = target.id;
     try {
       await video.play();
@@ -517,14 +484,16 @@ export function RankingStudio({
       return;
     }
     const order = filledIds();
-    if (!order.length) {
+    const startId = rankingStartId(slots[selected]?.id, order);
+    if (!startId) {
       setMessage(slots.some((item) => item.mediaId) ? "That clip has no preview yet." : "Add a clip to play.");
       return;
     }
+    const startAt = Math.max(0, order.indexOf(startId));
     playAll.current = true;
-    playQueue.current = order.slice(1);
+    playQueue.current = [...order.slice(startAt + 1), ...order.slice(0, startAt)];
     handingOff.current = false;
-    void startPlay(order[0], "cut", true);
+    void startPlay(startId, "cut", true);
   }
 
   function playThisClip() {
@@ -996,8 +965,7 @@ export function RankingStudio({
 
   const assistClips: AssistClip[] = slots.flatMap((item) => {
     const line = item.title.trim();
-    const fromFile = item.mediaName ? shelfName(item.mediaName).title : "";
-    const name = line || fromFile;
+    const name = slotListTitle(item.title, item.mediaName);
     if (!name) return [];
     return [
       {
@@ -1010,6 +978,7 @@ export function RankingStudio({
     ];
   });
   const phoneCaption = spokenLine(slot?.title, slot?.mediaName);
+  const headlineOnPhone = phoneHeadline(headline);
   const sequence = playbackOrder(slots, playback, orderIds);
   const playAt = new Map(sequence.map((item, index) => [item.id, index + 1]));
   const swatch = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#e2b340";
@@ -1065,12 +1034,10 @@ export function RankingStudio({
                 <b>#{item.rank}</b>
                 <span className="slot-copy">
                   <span className="slot-name">
-                    {item.mediaId ? item.title.trim() || (item.mediaName ? shelfName(item.mediaName).title : "") || "Clip" : "Empty slot"}
+                    {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Empty slot"}
                   </span>
                   {item.mediaId ? (
-                    <span className="slot-time">
-                      Cut {formatSpan(item.outSec - item.inSec)} · File {formatSpan(item.duration)}
-                    </span>
+                    <span className="slot-time">{slotTimeLine(item.outSec - item.inSec, item.duration)}</span>
                   ) : null}
                 </span>
                 {item.mediaId ? <em>Play {playAt.get(item.id)}</em> : null}
@@ -1110,58 +1077,56 @@ export function RankingStudio({
           ) : null}
         </aside>
         <div className="stage-wrap">
-          <div
-            className={slot?.previewUrl ? "phone phone-play" : "phone"}
-            onClick={playRanking}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                playRanking();
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            aria-label={playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking"}
-          >
-            {slot?.previewUrl ? (
-              <video
-                ref={preview}
-                src={slot.previewUrl}
-                playsInline
-                style={{ objectPosition: `${(slot.focus ?? 0.5) * 100}% center` }}
-                onTimeUpdate={onPreviewTime}
-                onEnded={onPreviewEnded}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-              />
-            ) : (
-              <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Add a clip"}</p>
-            )}
-            {wash ? <div className="phone-warmth" style={{ background: wash }} /> : null}
+          <div className="phone-stage">
+            <div
+              className={slot?.previewUrl ? "phone phone-play" : "phone"}
+              onClick={playRanking}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  playRanking();
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking"}
+            >
+              {slot?.previewUrl ? (
+                <video
+                  ref={preview}
+                  src={slot.previewUrl}
+                  playsInline
+                  style={{ objectPosition: `${(slot.focus ?? 0.5) * 100}% center` }}
+                  onTimeUpdate={onPreviewTime}
+                  onEnded={onPreviewEnded}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                />
+              ) : (
+                <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Add a clip"}</p>
+              )}
+              {wash ? <div className="phone-warmth" style={{ background: wash }} /> : null}
+              {headlineOnPhone ? (
+                <div className="phone-title" style={{ fontFamily: titleFontFamily(font) }}>
+                  {paint(headlineOnPhone, swatch, accentWords)}
+                </div>
+              ) : null}
+              {showCaptions && phoneCaption ? (
+                <div
+                  className="phone-clip"
+                  style={{
+                    fontFamily: titleFontFamily(font),
+                    color: inkOnPaper(lineColor),
+                    fontSize: Math.min(18, Math.max(14, Math.round(lineSizeOf(lineSize) * 0.22))),
+                  }}
+                >
+                  {phoneCaption}
+                </div>
+              ) : null}
+            </div>
             {showRank ? (
               <div className="phone-rank" style={{ fontFamily: titleFontFamily(font) }}>
                 {slot?.rank}
-              </div>
-            ) : null}
-            {headline.split("\n").some((line) => line.trim()) ? (
-              <div
-                className={showRank ? "phone-title" : "phone-title no-rank"}
-                style={{ fontFamily: titleFontFamily(font), whiteSpace: "pre-wrap" }}
-              >
-                {paint(headline, swatch, accentWords)}
-              </div>
-            ) : null}
-            {showCaptions && phoneCaption ? (
-              <div
-                className="phone-clip"
-                style={{
-                  fontFamily: titleFontFamily(font),
-                  color: inkOnPaper(lineColor),
-                  fontSize: Math.max(15, Math.round(lineSizeOf(lineSize) * 0.28)),
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {phoneCaption}
               </div>
             ) : null}
           </div>

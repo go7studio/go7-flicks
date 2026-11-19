@@ -1,6 +1,7 @@
 /**
  * Live cut check for the open Go7Flicks window.
  * Run: npx tsx scripts/test-cut.ts
+ * GTA gameplay cut only: npx tsx scripts/test-cut.ts --gta
  * The app should already be at http://localhost:5173/ with CDP on 127.0.0.1:9223.
  * This closes only its own debugger socket. It does not close the app.
  */
@@ -10,6 +11,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { probeGpu, probeMedia } from "../electron/probe";
 import { skipSubjectTitle } from "../src/shared/subject";
+import { slotListTitle } from "../src/shared/desk";
 import {
   CUT_BUTTON,
   DUAL_LABELS,
@@ -21,6 +23,11 @@ import {
   type Check,
   captionIsNotFileName,
   checkLine,
+  fewSecondsAround,
+  gameplayClipOk,
+  GTA_EXPORT_NAME,
+  GTA_FALLBACK_LINKS,
+  GTA_SUBJECT,
   missingLabels,
   rangeInsideFile,
   refusesKeeper,
@@ -453,17 +460,37 @@ function pictureSpan(clips: { trackId: string; inSec: number; outSec: number }[]
 }
 
 async function main() {
-  console.log("Go7Flicks cut check");
+  const gtaOnly = process.argv.includes("--gta");
+  console.log(gtaOnly ? "Go7Flicks GTA cut" : "Go7Flicks cut check");
   let cdp: Cdp | null = null;
   try {
     cdp = await connect();
-    await cdp.evaluate(PAGE, 15_000);
+    if (!gtaOnly) await cdp.evaluate(PAGE, 15_000);
   } catch (error) {
     const detail = error instanceof Error ? error.message : "The app is not on port 9223.";
+    if (gtaOnly) {
+      note("cuts", "GTA cut", false, detail);
+      finishGta(1);
+      return;
+    }
     for (const id of ["ui", "cuts", "links", "ai", "delivery"] as const) {
       note(id, id, false, detail);
     }
     finish(1);
+    return;
+  }
+
+  if (gtaOnly) {
+    try {
+      await runGta(cdp);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "The GTA cut stopped.";
+      note("cuts", "GTA cut", false, detail);
+    } finally {
+      cdp.release();
+    }
+    const failed = [...groups.links, ...groups.cuts, ...groups.ai].some((step) => !step.ok);
+    finishGta(failed ? 1 : 0);
     return;
   }
 
@@ -724,6 +751,319 @@ async function runScan(cdp: Cdp, dir: string) {
     verdict.ok && hookOk,
     `${chosen.kind}${chosen.model ? " " + chosen.model : ""}. ${verdict.detail}. ${asked.hook || reply.slice(0, 180)}`,
   );
+}
+
+const KEEPER_PATHS = [
+  String.raw`D:\GitHub\Parkour fails test\exports\Walk check.mp4`,
+  String.raw`D:\GitHub\Parkour fails test\exports\parkour-fails-short-cut-prove.mp4`,
+  String.raw`D:\GitHub\Parkour fails test\exports\parkour-fails-short-styled-prove.mp4`,
+  String.raw`D:\GitHub\Parkour fails test\exports\Voice overlay check.mp4`,
+  path.join(String.raw`D:\GitHub\Parkour fails test\flicks`, PARKOUR_FLICK, "voice.mp3"),
+];
+
+type GtaClip = {
+  mediaId: string;
+  mediaName: string;
+  title: string;
+  durationSec: number;
+  sourceUrl: string;
+  inSec: number;
+  outSec: number;
+  line: string;
+};
+
+function keeperSnap(): Record<string, number | null> {
+  const snap: Record<string, number | null> = {};
+  for (const file of KEEPER_PATHS) snap[file] = fs.existsSync(file) ? fs.statSync(file).size : null;
+  return snap;
+}
+
+function keepersHeld(before: Record<string, number | null>): { ok: boolean; detail: string } {
+  const changed: string[] = [];
+  for (const [file, size] of Object.entries(before)) {
+    const now = fs.existsSync(file) ? fs.statSync(file).size : null;
+    if (now !== size) changed.push(`${path.basename(file)} ${size ?? "missing"} -> ${now ?? "missing"}`);
+  }
+  const voice = KEEPER_PATHS[KEEPER_PATHS.length - 1];
+  const voiceSize = fs.existsSync(voice) ? fs.statSync(voice).size : null;
+  if (before[voice] === 21300 && voiceSize !== 21300) changed.push("parkour voice.mp3 is no longer 21300 bytes");
+  return { ok: changed.length === 0, detail: changed.join("; ") || "Keeper files were left alone." };
+}
+
+function searchToolFailed(message: string): boolean {
+  return /yt-dlp|youtube-dl|timed out|ENOTFOUND|ECONN|getaddrinfo|EAI_AGAIN|sign in to confirm|unable to download|ffmpeg is not available|certificate|network/i.test(
+    message,
+  );
+}
+
+function captionsFromReply(reply: string, count: number): string[] {
+  return reply
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*\d+[.)\s:-]+/, "").trim())
+    .filter((line) => line && !/^strongest:|^why:|^headline:|^title\s+c\d/i.test(line))
+    .slice(0, count);
+}
+
+async function runGta(cdp: Cdp) {
+  const before = keeperSnap();
+  const draftKeyHeld = async (dir: string) => {
+    const key = `go7-flicks-desk:${dir}:ranking`;
+    return cdp.evaluate<number>(`(() => { const raw = sessionStorage.getItem(${JSON.stringify(key)}); return raw ? raw.length : 0; })()`);
+  };
+
+  const channel = await cdp.evaluate<{ ok: boolean; dir?: string; message?: string }>(
+    `(async () => {
+      const opened = await window.flicks.openChannel(${JSON.stringify(CHANNEL)});
+      if (opened && opened.ok && opened.dir) return { ok: true, dir: opened.dir };
+      const created = await window.flicks.createChannel(${JSON.stringify(PARENT)}, "Go7 cut test");
+      if (!created || !created.ok || !created.dir) return { ok: false, message: (created && created.message) || "Could not open the test channel." };
+      return { ok: true, dir: created.dir };
+    })()`,
+    60_000,
+  );
+  if (!channel.ok || !channel.dir) {
+    note("links", "Channel", false, channel.message || "Could not open Go7 cut test.");
+    note("cuts", "GTA export", false, "No channel.");
+    note("cuts", "Keepers", keepersHeld(before).ok, keepersHeld(before).detail);
+    return;
+  }
+  if (/parkour fails test/i.test(channel.dir)) {
+    note("links", "Channel", false, "Refusing the parkour channel.");
+    note("cuts", "GTA export", false, "Refusing the parkour channel.");
+    return;
+  }
+  const dir = channel.dir;
+  note("links", "Channel", true, dir);
+  const draftBefore = await draftKeyHeld(dir);
+
+  const found = await cdp.evaluate<{
+    ok: boolean;
+    message?: string;
+    clips?: Array<{
+      mediaId: string;
+      mediaName: string;
+      title: string;
+      durationSec: number;
+      sourceUrl: string;
+      inSec?: number;
+      outSec?: number;
+    }>;
+  }>(`window.flicks.findClips(${JSON.stringify(dir)}, ${JSON.stringify(GTA_SUBJECT)}, 2)`, 12 * 60 * 1000);
+
+  let clips: GtaClip[] = [];
+  const foundMessage = redact(found.message || "");
+  if (!found.ok) {
+    note("links", "Find clips", false, foundMessage || "Find clips returned nothing.");
+    if (searchToolFailed(foundMessage)) {
+      note("cuts", "GTA export", false, foundMessage);
+      const held = keepersHeld(before);
+      note("cuts", "Keepers", held.ok, held.detail);
+      return;
+    }
+  } else {
+    const rows = found.clips ?? [];
+    const good = rows.filter((clip) => gameplayClipOk(clip.title || clip.mediaName, clip.durationSec));
+    if (good.length) {
+      clips = good.slice(0, 2).map((clip) => {
+        const range = fewSecondsAround(clip.inSec ?? 0, clip.outSec ?? 4, clip.durationSec);
+        return {
+          mediaId: clip.mediaId,
+          mediaName: clip.mediaName,
+          title: clip.title || clip.mediaName,
+          durationSec: clip.durationSec,
+          sourceUrl: clip.sourceUrl,
+          inSec: range.inSec,
+          outSec: range.outSec,
+          line: slotListTitle(clip.title || "", clip.mediaName),
+        };
+      });
+      note("links", "Find clips", true, `${foundMessage} ${clips.map((clip) => `${clip.title} ${clip.durationSec.toFixed(1)}s`).join(" | ")}`.trim());
+    } else {
+      const listed = rows.map((clip) => `${clip.title || clip.mediaName} ${clip.durationSec}s`).join(" | ") || "none";
+      note("links", "Find clips", false, `No short gameplay clip. ${foundMessage} Returned: ${listed}`.trim());
+    }
+  }
+
+  if (!clips.length && !searchToolFailed(foundMessage)) {
+    const landed: string[] = [];
+    const errors: string[] = [];
+    for (const url of GTA_FALLBACK_LINKS) {
+      const got = await cdp.evaluate<{
+        ok: boolean;
+        message?: string;
+        asset?: { id: string; name: string; durationSec: number };
+        sourceUrl?: string;
+      }>(`window.flicks.downloadMedia(${JSON.stringify(dir)}, ${JSON.stringify(url)})`, 8 * 60 * 1000);
+      if (!got.ok || !got.asset) {
+        errors.push(redact(got.message || `Could not get ${url}`));
+        continue;
+      }
+      const title = got.asset.name;
+      if (got.asset.durationSec < 2 || got.asset.durationSec > 90) {
+        errors.push(`${title} is ${got.asset.durationSec}s.`);
+        continue;
+      }
+      const off =
+        /\b(trailers?|teasers?|news|compilations?|montage|official|cinematic|reveal)\b/i.test(title) ||
+        skipSubjectTitle(title, GTA_SUBJECT);
+      const namesGameplay = gameplayClipOk(title, got.asset.durationSec) || (/\bgta\b/i.test(title) && !off);
+      if (!namesGameplay) {
+        errors.push(`${title} ${got.asset.durationSec}s was not a short gameplay clip.`);
+        continue;
+      }
+      const range = fewSecondsAround(0, Math.min(4, got.asset.durationSec), got.asset.durationSec);
+      clips.push({
+        mediaId: got.asset.id,
+        mediaName: got.asset.name,
+        title,
+        durationSec: got.asset.durationSec,
+        sourceUrl: got.sourceUrl || url,
+        inSec: range.inSec,
+        outSec: range.outSec,
+        line: slotListTitle("", got.asset.name),
+      });
+      landed.push(`${title} ${got.asset.durationSec.toFixed(1)}s`);
+      if (clips.length >= 2) break;
+    }
+    note("links", "Short links", clips.length > 0, clips.length ? landed.join(" | ") : errors.join(" | ") || "No short link arrived.");
+  }
+
+  if (!clips.length) {
+    if (!groups.cuts.some((step) => step.name === "GTA export")) note("cuts", "GTA export", false, "No short gameplay clip arrived.");
+    const held = keepersHeld(before);
+    note("cuts", "Keepers", held.ok, held.detail);
+    const draftAfter = await draftKeyHeld(dir);
+    note("links", "Funny dogs draft", draftBefore === draftAfter, draftBefore === draftAfter ? "The ranking draft was left in place." : "The ranking draft changed.");
+    return;
+  }
+
+  const chats = await cdp.evaluate<{ id: string; kind: string; name: string; connected: boolean; model: string }[]>(
+    `window.flicks.connections().then((rows) => rows.map((row) => ({ id: row.id, kind: row.kind, name: row.name, connected: row.connected, model: row.model || "" })))`,
+  );
+  const blocked = (model: string) => /gpt-6\.2|\bsol\b/i.test(model);
+  const cursor = chats.find((row) => row.kind === "cursor" && row.connected && !blocked(row.model));
+  const codex = chats.find((row) => row.kind === "codex" && row.connected && row.model.trim() === "gpt-6.1-terra");
+  const chosen = cursor || codex;
+  if (!chosen) {
+    const models = chats
+      .filter((row) => row.kind === "cursor" || row.kind === "codex")
+      .map((row) => `${row.kind} ${row.connected ? row.model || "no model" : "not connected"}`);
+    note("ai", "Titles", true, `No allowed title call. ${models.join("; ") || "No Cursor or Codex row."} Kept the short titles.`);
+  } else {
+    const prompt = [
+      "Write one short caption for each clip already listed. Six words or fewer.",
+      "Do not browse. Do not suggest a download. Do not use ids.",
+      ...clips.map((clip, index) => `${index + 1}. ${clip.title}`),
+      "Reply with one caption per line, in the same order.",
+    ].join("\n");
+    const asked = await cdp.evaluate<{ ok: boolean; text?: string; message?: string }>(
+      `window.flicks.askAssistant(${JSON.stringify(chosen.id)}, ${JSON.stringify(prompt)}).then((result) => ({ ok: Boolean(result && result.ok), text: (result && (result.text || result.message)) || "", message: (result && result.message) || "" }))`,
+      3 * 60 * 1000,
+    );
+    const reply = redact(asked.text || asked.message || "");
+    const lines = asked.ok ? captionsFromReply(reply, clips.length) : [];
+    if (!asked.ok || lines.length === 0) {
+      note("ai", "Titles", false, `${chosen.kind}${chosen.model ? " " + chosen.model : ""}. ${reply || "No caption came back."}`);
+    } else {
+      clips = clips.map((clip, index) => ({ ...clip, line: slotListTitle(lines[index] || clip.line, clip.mediaName) || clip.line }));
+      note("ai", "Titles", true, `${chosen.kind}${chosen.model ? " " + chosen.model : ""}. ${clips.map((clip) => clip.line).join(" | ")}`);
+    }
+  }
+
+  const outputPath = safeExport(GTA_EXPORT_NAME);
+  const job = {
+    dir,
+    outputPath,
+    clips: clips.map((clip) => ({
+      mediaId: clip.mediaId,
+      inSec: clip.inSec,
+      outSec: clip.outSec,
+      line: clip.line,
+      sourceUrl: clip.sourceUrl,
+    })),
+  };
+  const saved = await cdp.evaluate<{ ok: boolean; message?: string; flickId?: string }>(
+    `(async () => {
+      const job = ${JSON.stringify(job)};
+      if (/parkour fails test/i.test(job.dir) || /parkour fails test/i.test(job.outputPath)) return { ok: false, message: "Refusing a parkour path." };
+      const created = await window.flicks.createFlick(job.dir, "GTA gameplay fails", "builtin-ranking");
+      if (!created || !created.ok || !created.flick) return { ok: false, message: (created && created.message) || "Could not create the flick." };
+      const flick = created.flick;
+      const rank = flick.regions.find((region) => region.trackId === "track-top") || flick.regions[0];
+      if (rank) {
+        flick.regions = flick.regions.map((region) => region.id === rank.id
+          ? Object.assign({}, region, { x: 0, y: 0, width: 1, height: 1, hidden: false })
+          : Object.assign({}, region, { hidden: true }));
+      }
+      let cursor = 0;
+      const top = job.clips.map((clip, index) => {
+        const span = Math.max(0.4, Number(clip.outSec) - Number(clip.inSec));
+        const next = {
+          id: (crypto.randomUUID && crypto.randomUUID()) || ("gta-" + index),
+          mediaId: clip.mediaId,
+          trackId: "track-top",
+          startSec: Math.round(cursor * 1000) / 1000,
+          inSec: clip.inSec,
+          outSec: clip.outSec,
+          label: "#" + (job.clips.length - index),
+          line: clip.line || undefined,
+          sourceUrl: clip.sourceUrl || undefined,
+        };
+        cursor += span;
+        return next;
+      });
+      const loop = flick.clips.filter((clip) => clip.trackId !== "track-top").map((clip) => Object.assign({}, clip, { mediaId: null }));
+      flick.name = "GTA gameplay fails";
+      flick.headline = "GTA gameplay fails";
+      flick.width = 1080;
+      flick.height = 1920;
+      flick.showCaptions = true;
+      flick.showRank = true;
+      flick.voiceRelative = undefined;
+      flick.voiceStartSec = undefined;
+      flick.clips = top.concat(loop);
+      const stored = await window.flicks.saveFlick(job.dir, flick);
+      if (!stored || !stored.ok || !stored.flick) return { ok: false, message: (stored && stored.message) || "Could not save the flick." };
+      const exported = await window.flicks.exportCut(job.dir, stored.flick.id, job.outputPath);
+      return { ok: Boolean(exported && exported.ok), message: (exported && (exported.outputPath || exported.message)) || "Export returned nothing.", flickId: stored.flick.id };
+    })()`,
+    8 * 60 * 1000,
+  );
+  note("cuts", "GTA export", saved.ok, redact(saved.message || "Export returned nothing."));
+  if (saved.ok) {
+    const gpu = await probeGpu();
+    if (!gpu.ffmpegPath || !fs.existsSync(outputPath)) {
+      note("cuts", "GTA file", false, saved.message || outputPath);
+    } else {
+      const info = await probeMedia(outputPath, gpu.ffmpegPath);
+      const size = fs.statSync(outputPath).size;
+      const span = job.clips.reduce((sum, clip) => sum + Math.max(0, clip.outSec - clip.inSec), 0);
+      const frameOk = info.width === 1080 && info.height === 1920 && info.durationSec > 0.8 && info.durationSec < 20;
+      note(
+        "cuts",
+        "GTA file",
+        frameOk && size > 20_000,
+        `${info.width}x${info.height} ${info.durationSec.toFixed(2)}s, picture ${span.toFixed(2)}s, ${size} bytes, ${outputPath}`,
+      );
+    }
+  }
+  const held = keepersHeld(before);
+  note("cuts", "Keepers", held.ok, held.detail);
+  const draftAfter = await draftKeyHeld(dir);
+  note("links", "Funny dogs draft", draftBefore === draftAfter, draftBefore === draftAfter ? "The ranking draft was left in place." : "The ranking draft changed.");
+}
+
+function finishGta(code: number) {
+  console.log("");
+  for (const step of [...groups.links, ...groups.ai, ...groups.cuts]) {
+    console.log(`${step.ok ? "PASS" : "FAIL"} gta ${step.name} — ${step.detail}`);
+  }
+  const clipOk = groups.links.some((step) => (step.name === "Find clips" || step.name === "Short links") && step.ok);
+  const exportOk = groups.cuts.some((step) => step.name === "GTA file" && step.ok);
+  const keepersOk = groups.cuts.some((step) => step.name === "Keepers" && step.ok);
+  const passed = clipOk && exportOk && keepersOk;
+  console.log(passed ? "GTA cut passed." : "GTA cut failed.");
+  process.exit(passed ? 0 : code || 1);
 }
 
 function finish(code: number) {

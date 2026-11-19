@@ -4,6 +4,7 @@ import {
   readWhichClip,
   trendPrompt,
   voiceOnly,
+  whichClipPlain,
   whichClipPrompt,
   type AssistClip,
 } from "../shared/assist";
@@ -47,7 +48,7 @@ export function WhichClip({
   const chosen = chat.find((row) => row.id === chatId) ?? chat[0];
   const ready = shown.length > 0 && Boolean(chosen) && !disabled && !busy;
   const pick = mode === "pick" && words ? readWhichClip(words, shown.map((_, index) => `c${index + 1}`)) : null;
-  const strongest = pick?.strongestId ? shown[Number(pick.strongestId.slice(1)) - 1] : null;
+  const plain = mode === "pick" && words ? whichClipPlain(words, shown.map((clip) => clip.name)) : "";
 
   async function ask(next: "pick" | "trend") {
     if (!chosen || !shown.length || !window.flicks) return;
@@ -111,13 +112,17 @@ export function WhichClip({
         </>
       ) : null}
       {notice ? <p className="which-words">{notice}</p> : null}
-      {words ? (
+      {plain ? (
+        <>
+          <p className="tiny muted">The model’s words</p>
+          <p className="which-words">{plain}</p>
+        </>
+      ) : words ? (
         <>
           <p className="tiny muted">{mode === "trend" ? "Trend" : "The model’s words"}</p>
           <p className="which-words">{words}</p>
         </>
       ) : null}
-      {pick && strongest ? <p className="which-strong">Strongest hook: {strongest.name}</p> : null}
       {pick?.headline ? (
         <div className="which-apply">
           <p>

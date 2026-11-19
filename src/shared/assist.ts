@@ -108,3 +108,28 @@ export function readWhichClip(text: string, ids: string[]): AssistPick {
   }
   return { strongestId, why, headline, titles };
 }
+
+/**
+ * The person sees a clip name and the model's sentence.
+ * The STRONGEST label and the internal id stay off the desk once the name is known.
+ */
+export function whichClipPlain(reply: string, names: string[]): string {
+  const ids = names.map((_, index) => `c${index + 1}`);
+  const pick = readWhichClip(reply, ids);
+  const index = pick.strongestId ? Number(pick.strongestId.slice(1)) - 1 : -1;
+  const name = index >= 0 ? (names[index] ?? "").trim() : "";
+  const sentence = pick.why.replace(/\s+/g, " ").trim();
+  if (name && sentence) return `${name}\n${sentence}`;
+  if (name) return name;
+  const named = new Map(ids.map((id, at) => [id.toLowerCase(), (names[at] ?? "").trim()]));
+  const lines = reply
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^HEADLINE:/i.test(line) && !/^TITLE\s+/i.test(line))
+    .map((line) => line.replace(/^STRONGEST:\s*/i, "").replace(/^WHY:\s*/i, ""))
+    .map((line) => line.replace(/\bc\d+\b/gi, (token) => named.get(token.toLowerCase()) || token))
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (sentence && !lines.some((line) => line.includes(sentence))) lines.unshift(sentence);
+  return lines.join("\n").trim();
+}

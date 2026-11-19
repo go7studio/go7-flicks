@@ -6,6 +6,8 @@ import { voiceMuxArgs } from "../electron/cut";
 import { cutAudioFilter } from "../src/shared/mix";
 import { clipLink } from "../src/shared/link";
 import { FRAME } from "../src/shared/model";
+import { whichClipPlain } from "../src/shared/assist";
+import { formatClock, phoneHeadline, rankingStartId, slotListTitle, slotTimeLine } from "../src/shared/desk";
 import { builtinTemplates, flickFromTemplate, rankingClipRange, spokenLine } from "../src/shared/canvas";
 import { clipsFromSearch, pickSubjectClips, placeFoundClips, skipSubjectTitle } from "../src/shared/subject";
 import { captionFromFile } from "../src/remotion/FlickComposition";
@@ -13,11 +15,15 @@ import {
   CUT_BUTTON,
   DUAL_LABELS,
   HOME_LABELS,
+  GTA_EXPORT_NAME,
+  GTA_SUBJECT,
   PARKOUR_FLICK,
   RANKING_LABELS,
   SHORT_LINKS,
   STYLED_BUTTON,
   captionIsNotFileName,
+  fewSecondsAround,
+  gameplayClipOk,
   missingLabels,
   rangeInsideFile,
   refusesKeeper,
@@ -168,4 +174,56 @@ test("the check refuses the keeper files", () => {
   assert.equal(refusesKeeper(`D:\\GitHub\\Parkour fails test\\flicks\\${PARKOUR_FLICK}\\voice.mp3`), true);
   assert.equal(refusesKeeper("D:\\GitHub\\Go7 cut test\\exports\\cut-test-picture.mp4"), false);
   assert.equal(refusesKeeper("D:\\GitHub\\Go7 cut test\\flicks\\new-flick\\voice.mp3"), false);
+  assert.equal(refusesKeeper(`D:\\GitHub\\Go7 cut test\\exports\\${GTA_EXPORT_NAME}`), false);
+});
+
+test("a slot row is one short title and one clock", () => {
+  assert.equal(slotListTitle("A 3D rug that fools the dogs", "Angry dogs vs mirror.mp4"), "A 3D rug that fools the dogs");
+  assert.equal(
+    slotListTitle("Angry dogs vs mirror reaction | Funny dogs fighting mirror | Amazing mirror reactions on dog", "clip.mp4"),
+    "Angry dogs vs mirror reaction",
+  );
+  assert.equal(slotListTitle("", "Ultimate Dog Tease.mp4"), "Ultimate Dog Tease");
+  const cut = slotTimeLine(4, 38.3);
+  const file = slotTimeLine(4, 81);
+  assert.equal(cut, `Cut ${formatClock(4)} · File ${formatClock(38.3)}`);
+  assert.equal(file, "Cut 00:04.00 · File 01:21.00");
+  assert.match(cut, /File\s+[0-9]/);
+  assert.match(file, /File\s+[0-9]/);
+  assert.equal(cut.includes("38.3s"), false);
+  assert.equal(file.includes("1:21"), true);
+  assert.equal(phoneHeadline("Funny dogs"), "Funny dogs");
+  assert.equal(phoneHeadline("Ranking the funniest\ncartoon moments"), "");
+  assert.equal(rankingStartId("slot-b", ["slot-a", "slot-b"]), "slot-b");
+  assert.equal(rankingStartId("empty", ["slot-a"]), "slot-a");
+});
+
+test("which clip shows the clip name and the sentence", () => {
+  const names = ["A 3D rug that fools the dogs", "Ultimate Dog Tease"];
+  const plain = whichClipPlain(
+    "STRONGEST: c1\nWHY: The rug stops the dogs mid-thought.\nHEADLINE: Funny dogs\nTITLE c1: Rug fools the dogs",
+    names,
+  );
+  assert.equal(plain.includes("STRONGEST"), false);
+  assert.equal(plain.includes("c1"), false);
+  assert.match(plain, /A 3D rug that fools the dogs/);
+  assert.match(plain, /The rug stops the dogs mid-thought/);
+  const verdict = whichClipVerdict(plain, ["c1", "c2"], names);
+  assert.equal(verdict.ok, true);
+  assert.equal(verdict.named, names[0]);
+});
+
+test("a gta gameplay clip stays short and skips trailers", () => {
+  assert.equal(gameplayClipOk("GTA gameplay fail on the freeway", 42, GTA_SUBJECT), true);
+  assert.equal(gameplayClipOk("GTA VI official gameplay trailer", 48, GTA_SUBJECT), false);
+  assert.equal(gameplayClipOk("GTA gameplay fails compilation", 40, GTA_SUBJECT), false);
+  assert.equal(gameplayClipOk("GTA news desk reacts", 30, GTA_SUBJECT), false);
+  assert.equal(gameplayClipOk("GTA gameplay fail", 91, GTA_SUBJECT), false);
+  assert.equal(gameplayClipOk("Funny cats at home", 20, GTA_SUBJECT), false);
+  const cut = fewSecondsAround(12, 40, 80);
+  assert.ok(cut.outSec - cut.inSec <= 6);
+  assert.ok(cut.outSec <= 80);
+  const kept = fewSecondsAround(8.2, 12.2, 40);
+  assert.equal(kept.inSec, 8.2);
+  assert.equal(kept.outSec, 12.2);
 });

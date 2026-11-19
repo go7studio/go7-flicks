@@ -132,10 +132,16 @@
 }
 
 .studio .slot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "rank name play"
+    "rank time time";
   align-items: center;
+  column-gap: 12px;
+  row-gap: 4px;
   min-height: 64px;
   padding: 12px 14px;
-  gap: 12px;
   background: #fffdf8;
   border: 1px solid #e6dfd2;
   border-radius: 14px;
@@ -148,6 +154,7 @@
 }
 
 .studio .slot b {
+  grid-area: rank;
   margin-right: 0;
   min-width: 40px;
   font-size: 20px;
@@ -157,15 +164,15 @@
 }
 
 .studio .slot-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
+  display: contents;
 }
 
 .studio .slot-name {
-  white-space: normal;
+  grid-area: name;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
   font-size: 14px;
   font-weight: 650;
   font-style: normal;
@@ -173,6 +180,8 @@
 }
 
 .studio .slot em {
+  grid-area: play;
+  align-self: center;
   min-width: 0;
   width: auto;
   height: auto;
@@ -200,6 +209,8 @@
 }
 
 .studio .slot-time {
+  grid-area: time;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 650;
   font-style: normal;
