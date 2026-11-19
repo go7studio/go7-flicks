@@ -131,10 +131,10 @@ export function HomeScreen({
   async function forget(dir: string) {
     try {
       const result = await (window.flicks as HomeLibraryApi).forgetRecent(dir);
-      if (result?.ok !== true) setMessage(result?.message || "Could not forget that channel.");
+      if (result?.ok !== true) setMessage(result?.message || "Could not hide that channel.");
       setRecent((items) => recentRowsAfterForget(items, dir, result));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not forget that channel.");
+      setMessage(error instanceof Error ? error.message : "Could not hide that channel.");
     }
   }
 
@@ -176,25 +176,27 @@ export function HomeScreen({
             {recent.map((item) => {
               const clipped = item.clippedAt ? whenPhrase("Clipped", item.clippedAt) : null;
               const made = item.madeAt ? whenPhrase("Made", item.madeAt) : null;
+              const when = [made, clipped].filter(Boolean).join(" · ");
               const title = channelTitle(item);
               return (
-                <div key={item.path} className="lib-card">
-                  <button type="button" className="btn-ghost lib-card-copy" onClick={() => onOpen(item.path)}>
-                    <strong>{title}</strong>
-                    {made ? <span className="lib-when">{made}</span> : null}
-                    {clipped ? <span className="lib-when">{clipped}</span> : null}
+                <article key={item.path} className="lib-card">
+                  <button type="button" className="lib-card-open" onClick={() => onOpen(item.path)}>
+                    <strong className="lib-name">{title}</strong>
+                    <span className="lib-when" title={when || undefined}>
+                      {when || "\u00a0"}
+                    </span>
                     <span className="lib-open">Open</span>
                   </button>
                   <button
                     type="button"
-                    className="btn-ghost"
-                    aria-label={`Forget ${title}`}
+                    className="lib-hide"
+                    aria-label={`Hide ${title}`}
                     title="Takes this channel off the list. The folder stays."
                     onClick={() => void forget(item.path)}
                   >
-                    Forget
+                    Hide
                   </button>
-                </div>
+                </article>
               );
             })}
           </div>
@@ -301,11 +303,62 @@ function ModeHint({ mode }: { mode: StartMode }) {
   return <p className="muted tiny">{line}</p>;
 }
 
-function channelTitle(item: RecentChannel): string {
-  const name = item.name.trim();
-  if (name && !/[\\/]/.test(name)) return name;
-  const base = item.path.split(/[/\\]/).filter(Boolean).pop();
-  return base || "Channel";
+const SKIP_DIRS = new Set([
+  "users",
+  "appdata",
+  "local",
+  "roaming",
+  "temp",
+  "tmp",
+  "github",
+  "windows",
+  "desktop",
+  "documents",
+  "program files",
+  "program files (x86)",
+  "application data",
+]);
+
+/** Card label only. A long id stays out of the title; the folder name on disk is left as it is. */
+export function channelTitle(item: Pick<RecentChannel, "name" | "path"> & Partial<Pick<RecentChannel, "madeAt" | "clippedAt">>): string {
+  const stored = item.name.trim();
+  const leaf = item.path.split(/[/\\]/).filter(Boolean).pop()?.trim() ?? "";
+  const raw = stored && !/[\\/]/.test(stored) ? stored : leaf;
+  const words = readableWords(raw);
+  if (words) return words;
+  const fromFolder = folderPhrase(item.path);
+  if (fromFolder) return fromFolder;
+  return channelFallback(item);
+}
+
+function readableWords(value: string): string {
+  const stripped = value.replace(/\d{8,}/g, " ").replace(/\s+/g, " ").trim();
+  const parts = stripped.split(" ").filter((part) => part && !/^\d{5,}$/.test(part));
+  if (!parts.length) return "";
+  if (!parts.some((part) => /[A-Za-z]/.test(part))) {
+    const digits = parts.join("");
+    return digits.length >= 5 ? "" : parts.join(" ");
+  }
+  return parts.join(" ");
+}
+
+function folderPhrase(filePath: string): string {
+  const segments = filePath.split(/[/\\]/).filter(Boolean);
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    const segment = segments[i].trim();
+    if (/^[a-z]:$/i.test(segment)) continue;
+    if (SKIP_DIRS.has(segment.toLowerCase())) return "";
+    if (!/\s/.test(segment) && /[a-z]/i.test(segment) && /\d/.test(segment) && segment.length > 16) continue;
+    const words = readableWords(segment);
+    if (words) return words;
+  }
+  return "";
+}
+
+function channelFallback(item: { madeAt?: string; clippedAt?: string }): string {
+  const phrase = item.madeAt ? whenPhrase("Made", item.madeAt) : item.clippedAt ? whenPhrase("Clipped", item.clippedAt) : null;
+  if (!phrase) return "Channel";
+  return `Channel ${phrase.replace(/^(Made|Clipped) /, "")}`;
 }
 
 function CardArt({ art }: { art: string }) {

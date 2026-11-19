@@ -258,3 +258,31 @@ test("a failed forget keeps the recent card", async () => {
   assert.deepEqual(ui.recentRowsAfterForget(rows, "C:\\Kept", undefined), rows);
   assert.deepEqual(ui.recentRowsAfterForget(rows, "C:\\Kept", { ok: true }), [{ path: "C:\\Other" }]);
 });
+
+test("library card titles stay readable", async () => {
+  const ui = (await import(new URL("../src/ui/HomeScreen.tsx", import.meta.url).href)) as {
+    channelTitle: (item: { name: string; path: string; madeAt?: string; clippedAt?: string }) => string;
+  };
+  assert.equal(ui.channelTitle({ name: "Parkour fails test", path: "D:\\GitHub\\Parkour fails test" }), "Parkour fails test");
+  assert.equal(ui.channelTitle({ name: "Go7 cut test", path: "D:\\GitHub\\Go7 cut test" }), "Go7 cut test");
+  assert.equal(ui.channelTitle({ name: "Top 10", path: "D:\\GitHub\\Top 10" }), "Top 10");
+  assert.equal(
+    ui.channelTitle({
+      name: "NAS test 1794250548589",
+      path: "C:\\Users\\sgovo\\AppData\\Local\\Temp\\go7flicks-channel-dsQvmn\\NAS test 1794250548589",
+    }),
+    "NAS test",
+  );
+  assert.equal(ui.channelTitle({ name: "Emoji Loop 55941", path: "D:\\GitHub\\Emoji Loop 55941" }), "Emoji Loop");
+  assert.equal(
+    ui.channelTitle({ name: "1794250548589", path: "D:\\GitHub\\NAS test\\1794250548589" }),
+    "NAS test",
+  );
+  const madeAt = "2026-11-09T15:00:00.000Z";
+  const made = new Date(madeAt);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  assert.equal(
+    ui.channelTitle({ name: "1794250548589", path: "C:\\Users\\sgovo\\AppData\\Local\\Temp\\1794250548589", madeAt }),
+    `Channel ${months[made.getMonth()]} ${made.getDate()}`,
+  );
+});
