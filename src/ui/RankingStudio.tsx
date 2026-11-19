@@ -28,7 +28,7 @@ import { round3, uid, type Clip, type Flick, type Template } from "../shared/mod
 import type { ResolvedMedia } from "../shared/api";
 import { captionFromFile, headlineFromFlick, openDeskFlick, titleFromClip } from "../remotion/FlickComposition";
 import type { AssistClip } from "../shared/assist";
-import { formatClock, phoneHeadline, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../shared/desk";
+import { fitRankingSlots, formatClock, phoneHeadline, playbackSentence, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../shared/desk";
 import { placeFoundClips, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
 import { whenPhrase } from "../shared/when";
 import "./polish-desks.css";
@@ -48,6 +48,8 @@ type Slot = {
   madeAt?: string;
   previewUrl: string | null;
   focus: number;
+  /** An empty slot someone asked for, so a later tidy does not remove it. */
+  keepEmpty?: boolean;
 };
 
 const RANKING_HEADLINE = "Ranking the funniest\ncartoon moments";
@@ -68,12 +70,11 @@ function makeSlots(count: number): Slot[] {
   }));
 }
 
-function orderWords(mode: PlaybackMode, rows: { id: string; rank: number }[]): string {
-  if (mode === "countdown") return "Plays the highest rank first.";
-  if (mode === "listed") return "Plays the slots from the top of the list.";
-  if (mode === "shuffle") return "Plays a mixed order. Rank numbers stay.";
-  const ranks = playbackOrder(rows, "skip").map((item) => item.rank);
-  return `Plays ${ranks.join(", then ")}.`;
+function renumberSlots(rows: Slot[]): Slot[] {
+  return rows.map((item, index) => ({
+    ...item,
+    rank: slotRank(undefined, index, rows.length),
+  }));
 }
 
 function clampOut(next: number, inSec: number, duration: number): number {
@@ -149,28 +150,27 @@ function slotsFromFlick(flick: Flick, media: ResolvedMedia[]): Slot[] {
     .filter((clip) => clip.label !== "Loop" && clip.trackId !== "track-bottom")
     .slice()
     .sort((a, b) => a.startSec - b.startSec);
-  const count = ranked.length > 7 ? ranked.length : Math.min(7, Math.max(5, ranked.length || 5));
-  return Array.from({ length: count }, (_, index) => {
-    const clip = ranked[index];
-    const blank = makeSlots(1)[0];
-    if (!clip) return { ...blank, rank: slotRank(undefined, index, count) };
-    const asset = media.find((item) => item.id === clip.mediaId);
-    const duration = asset && asset.durationSec > 0 ? asset.durationSec : 0;
-    return {
-      id: uid(),
-      rank: slotRank(clip.label, index, count),
-      title: clip.line ?? "",
-      note: clip.sourceUrl ?? "",
-      inSec: clip.inSec,
-      outSec: clip.outSec,
-      duration,
-      mediaId: clip.mediaId,
-      mediaName: asset?.name ?? "",
-      madeAt: asset?.madeAt,
-      previewUrl: asset?.previewUrl ?? null,
-      focus: typeof clip.focus === "number" ? clip.focus : 0.5,
-    };
-  });
+  const count = ranked.length;
+  return fitRankingSlots(
+    ranked.map((clip, index) => {
+      const asset = media.find((item) => item.id === clip.mediaId);
+      const duration = asset && asset.durationSec > 0 ? asset.durationSec : 0;
+      return {
+        id: uid(),
+        rank: slotRank(clip.label, index, count),
+        title: clip.line ?? "",
+        note: clip.sourceUrl ?? "",
+        inSec: clip.inSec,
+        outSec: clip.outSec,
+        duration,
+        mediaId: clip.mediaId,
+        mediaName: asset?.name ?? "",
+        madeAt: asset?.madeAt,
+        previewUrl: asset?.previewUrl ?? null,
+        focus: typeof clip.focus === "number" ? clip.focus : 0.5,
+      };
+    }),
+  );
 }
 
 function parseClock(value: string): number | null {
@@ -223,6 +223,13 @@ export function RankingStudio({
   const [nowSec, setNowSec] = useState(0);
   const [liveFace, setLiveFace] = useState<0 | 1>(0);
   const slot = slots[selected];
+
+  useEffect(() => {
+    const next = fitRankingSlots(slots);
+    if (next === slots) return;
+    setSlots(next);
+    setSelected((index) => (next.length ? Math.min(Math.max(0, index), next.length - 1) : 0));
+  }, [slots]);
   const deckA = useRef<HTMLVideoElement>(null);
   const deckB = useRef<HTMLVideoElement>(null);
   const liveDeck = useRef<0 | 1>(0);
@@ -316,7 +323,7 @@ export function RankingStudio({
       }
       if (Array.isArray(stored.orderIds)) setOrderIds(stored.orderIds.filter((item) => typeof item === "string"));
       if (stored.slots?.length) {
-        setSlots(
+        const fitted = fitRankingSlots(
           stored.slots.map((item) => ({
             id: item.id,
             rank: typeof item.rank === "number" ? item.rank : 1,
@@ -330,10 +337,14 @@ export function RankingStudio({
             madeAt: typeof item.madeAt === "string" ? item.madeAt : undefined,
             previewUrl: typeof item.previewUrl === "string" ? item.previewUrl : null,
             focus: typeof item.focus === "number" ? item.focus : 0.5,
+            keepEmpty: item.keepEmpty === true,
           })),
         );
+        setSlots(fitted);
+        if (typeof stored.selected === "number") setSelected(fitted.length ? Math.min(stored.selected, fitted.length - 1) : 0);
+      } else if (typeof stored.selected === "number") {
+        setSelected(stored.selected);
       }
-      if (typeof stored.selected === "number") setSelected(stored.selected);
       if (!channelDir && stored.dir) {
         setDir(stored.dir);
         setAnnounced(folderName(stored.dir));
@@ -751,17 +762,28 @@ export function RankingStudio({
   }
 
   function setCount(count: number) {
-    if (count === slots.length) return;
+    const lastMedia = slots.reduce((end, item, index) => (item.mediaId ? index : end), -1);
+    const nextCount = Math.max(count, lastMedia + 1);
+    if (nextCount === slots.length) {
+      if (count < slots.length) setMessage("The clips already here stay.");
+      return;
+    }
     pausePreview();
-    setSlots((rows) =>
-      makeSlots(count).map((item, index) => ({
-        ...item,
-        ...(rows[index] ?? {}),
-        rank: slotRank(undefined, index, count),
-        id: rows[index]?.id ?? item.id,
-      })),
-    );
-    setSelected((index) => Math.min(count - 1, Math.max(0, index)));
+    setSlots((rows) => {
+      const added =
+        nextCount > rows.length
+          ? Array.from({ length: nextCount - rows.length }, () => ({ ...makeSlots(1)[0], keepEmpty: true }))
+          : [];
+      const next = nextCount > rows.length ? [...rows, ...added] : rows.slice(0, nextCount);
+      return renumberSlots(next);
+    });
+    setSelected((index) => Math.min(nextCount - 1, Math.max(0, index)));
+  }
+
+  function addSlot() {
+    pausePreview();
+    setSlots((rows) => renumberSlots([...rows, { ...makeSlots(1)[0], keepEmpty: true }]));
+    setSelected(slots.length);
   }
 
   function shuffle() {
@@ -951,10 +973,11 @@ export function RankingStudio({
       flushSync(() => {
         setSlots((rows) => {
           const before = rows.map((item) => item.mediaId);
-          const next = placeFoundClips(rows, result.clips!);
-          placed = next.placed;
-          first = next.slots.findIndex((item, index) => item.mediaId && item.mediaId !== before[index]);
-          return next.slots;
+          const found = placeFoundClips(rows, result.clips!);
+          const next = fitRankingSlots(found.slots, false);
+          placed = found.placed;
+          first = next.findIndex((item, index) => item.mediaId && item.mediaId !== before[index]);
+          return next;
         });
       });
       if (first >= 0) setSelected(first);
@@ -1171,7 +1194,7 @@ export function RankingStudio({
   });
   const phoneCaption = spokenLine(slot?.title, slot?.mediaName);
   const headlineOnPhone = phoneHeadline(headline);
-  const sequence = playbackOrder(slots, playback, orderIds);
+  const sequence = playbackOrder(slots, playback, orderIds).filter((item) => item.previewUrl);
   const playAt = new Map(sequence.map((item, index) => [item.id, index + 1]));
   const swatch = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#e2b340";
   const wash = warmthWash(warmth);
@@ -1183,8 +1206,10 @@ export function RankingStudio({
           <HomeIcon />
           Home
         </button>
-        <strong>Video ranking</strong>
-        {folderLabel ? <span className="timeline-hint">{folderLabel}</span> : null}
+        <div className="rank-title">
+          <strong>Video ranking</strong>
+          {folderLabel ? <span className="timeline-hint">{folderLabel}</span> : null}
+        </div>
         <div className="timeline-open">
           <button className="btn-gold" disabled={busy} onClick={() => void openTimeline()}>
             <TimelineIcon />
@@ -1196,8 +1221,8 @@ export function RankingStudio({
       {message ? <p className="banner">{message}</p> : null}
       <div className="studio-body">
         <aside className="rail stack rank-rail">
-          <p className="rail-label">Slots</p>
-          <div className="count-row" role="group" aria-label="How many slots">
+          <p className="rail-label">Ask for more slots</p>
+          <div className="count-row" role="group" aria-label="Ask for more slots">
             {[5, 6, 7].map((count) => (
               <button
                 key={count}
@@ -1205,7 +1230,7 @@ export function RankingStudio({
                 aria-pressed={slots.length === count}
                 onClick={() => setCount(count)}
               >
-                {count}
+                {count} slots
               </button>
             ))}
           </div>
@@ -1213,7 +1238,7 @@ export function RankingStudio({
             {slots.map((item, index) => (
               <button
                 key={item.id}
-                className={index === selected ? "slot on" : "slot"}
+                className={index === selected ? (item.mediaId ? "slot on" : "slot is-empty on") : item.mediaId ? "slot" : "slot is-empty"}
                 onClick={() => {
                   if (index !== selected) {
                     stopSequence();
@@ -1227,7 +1252,7 @@ export function RankingStudio({
                 <b>#{item.rank}</b>
                 <span className="slot-copy">
                   <span className="slot-name">
-                    {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Empty slot"}
+                    {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Add a clip"}
                   </span>
                   {item.mediaId ? (
                     <span className="slot-time">{slotTimeLine(item.outSec - item.inSec, item.duration)}</span>
@@ -1237,28 +1262,36 @@ export function RankingStudio({
               </button>
             ))}
           </div>
+          <button type="button" className="slot-add" onClick={addSlot}>
+            Add a clip
+          </button>
+          <p className="rail-label">Play order</p>
           <div className="order-stack">
             <button className={playback === "countdown" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("countdown")}>
               <ClockIcon />
               Countdown
             </button>
+            {playback === "countdown" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
             <button className={playback === "listed" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("listed")}>
               <ListIcon />
               Listed
             </button>
+            {playback === "listed" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
             <button className={playback === "skip" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("skip")}>
               <SkipIcon />
               Skip around
             </button>
+            {playback === "skip" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
             <button className={playback === "shuffle" ? "order-btn on" : "order-btn"} onClick={shuffle}>
               <ShuffleIcon />
               Shuffle
             </button>
+            {playback === "shuffle" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
           </div>
-          <p className="order-hint">{orderWords(playback, slots)}</p>
           <button className="btn desk-save" onClick={() => void saveRecipe()}>
             Save template
           </button>
+          <p className="desk-note">Keeps this order and these words, and leaves the clips off the template.</p>
           {recipes.length ? (
             <div className="order-stack">
               {recipes.map((recipe) => (
@@ -1366,6 +1399,7 @@ export function RankingStudio({
                 </button>
               </span>
             </label>
+            <p className="desk-note">This searches for the subject you typed and fills empty slots with up to three short clips, and it does not use Cursor or Codex.</p>
           </div>
           <div className="desk-focus">
             <label className="stack">
@@ -1439,8 +1473,8 @@ export function RankingStudio({
           {slot ? (
             <>
               <div className="add-line">
-                <span>Add clip</span>
-                <button className="plus" disabled={busy} aria-label="Add clip" onClick={() => void addClip()}>
+                <span>Choose a file</span>
+                <button className="plus" disabled={busy} aria-label="Choose a file" onClick={() => void addClip()}>
                   +
                 </button>
               </div>

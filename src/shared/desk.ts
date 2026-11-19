@@ -1,4 +1,4 @@
-import { shelfName, spokenLine } from "./canvas";
+import { playbackOrder, shelfName, slotRank, spokenLine, type PlaybackMode } from "./canvas";
 
 /** The desk clock. Minutes, seconds, and hundredths, always the same width. */
 export function formatClock(seconds: number): string {
@@ -71,4 +71,40 @@ export function rankingStep(input: {
   if (!(input.currentTime >= input.endSec - slack)) return "play";
   if (input.mode !== "cut" || !input.sequencing || !input.hasNext) return "stop";
   return input.nextReady ? "cut" : "hold";
+}
+
+type FittedSlot = {
+  mediaId: string | null;
+  rank: number;
+  keepEmpty?: boolean;
+};
+
+/**
+ * A search that filled the top of a longer list should not leave numbered holes at the end.
+ * Slots with clips stay. A slot someone asked to add can stay empty. The set is numbered from the top.
+ */
+export function fitRankingSlots<T extends FittedSlot>(slots: T[], keepAsked = true): T[] {
+  if (!slots.some((item) => item.mediaId)) return slots;
+  let end = slots.length;
+  while (end > 0 && !slots[end - 1].mediaId && !(keepAsked && slots[end - 1].keepEmpty)) end -= 1;
+  if (end === slots.length) return slots;
+  const kept = slots.slice(0, end);
+  return kept.map((item, index) => ({
+    ...item,
+    rank: slotRank(undefined, index, kept.length),
+  }));
+}
+
+/** One sentence for the selected play order. Skip names only the ranks that will be heard. */
+export function playbackSentence(
+  mode: PlaybackMode,
+  slots: { id: string; rank: number; previewUrl: string | null }[],
+  orderIds: string[] = [],
+): string {
+  const heard = playbackOrder(slots, mode, orderIds).filter((item) => item.previewUrl);
+  const order = heard.map((item) => `#${item.rank}`).join(", then ");
+  if (mode === "countdown") return order ? `Plays the highest rank first: ${order}.` : "Plays the highest rank first.";
+  if (mode === "listed") return order ? `Plays from the top of the list: ${order}.` : "Plays from the top of the list.";
+  if (mode === "shuffle") return order ? `Plays ${order}, and the rank numbers stay.` : "Plays a mixed order, and the rank numbers stay.";
+  return order ? `Plays ${order}.` : "Plays from the outside in.";
 }

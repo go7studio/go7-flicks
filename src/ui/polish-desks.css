@@ -35,6 +35,19 @@
   color: #1c1915;
 }
 
+.studio .rank-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.studio .rank-title .timeline-hint {
+  text-align: center;
+}
+
 .studio .timeline-hint {
   color: #6f675c;
   font-size: 13px;
@@ -84,6 +97,8 @@
 .studio .rank-rail,
 .studio .rank-inspector {
   background: #fffdf8;
+  min-height: 0;
+  overflow: auto;
 }
 
 .studio .rank-rail {
@@ -116,13 +131,16 @@
 
 .studio .count-btn {
   width: 100%;
-  height: 52px;
+  height: auto;
+  min-height: 48px;
+  padding: 8px 6px;
   border-radius: 14px;
   border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
-  font-size: 20px;
+  font-size: 14px;
   font-weight: 750;
+  line-height: 1.2;
 }
 
 .studio .count-btn.on {
@@ -200,12 +218,36 @@
   color: #f7f3ea;
 }
 
-.studio .order-hint {
+.studio .order-hint,
+.studio .desk-note {
   margin: 0;
   color: #6f675c;
   font-size: 13px;
   font-weight: 650;
   line-height: 1.35;
+}
+
+.studio .slot.is-empty .slot-name {
+  color: #6f675c;
+}
+
+.studio .slot-add {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px dashed #cfc6b8;
+  background: transparent;
+  color: #6f675c;
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.studio .slot-add:hover {
+  background: #f8f1e3;
+  border-color: #1c1915;
+  color: #1c1915;
 }
 
 .studio .slot-time {

@@ -75,6 +75,7 @@ export function WhichClip({
   return (
     <section className="which-clip" aria-label="Which clip">
       <p className="rail-label">Which clip</p>
+      <p className="desk-note">This reads the clips already on the desk and answers through Cursor or Codex.</p>
       {rows === null ? <p className="muted tiny">Checking accounts…</p> : null}
       {rows && chat.length === 0 ? (
         <p className="muted">

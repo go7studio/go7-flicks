@@ -685,6 +685,10 @@ async function runCut(cdp: Cdp) {
   await runScan(cdp, dir);
 }
 
+function slotOpen(name: string | undefined): boolean {
+  return !name || name === "Empty slot" || name === "Add a clip";
+}
+
 async function runScan(cdp: Cdp, dir: string) {
   const opened = await cdp.evaluate<{ ok: boolean; detail: string }>(`window.__go7Cut.setRoute(${JSON.stringify({ name: "ranking", dir })})`);
   await cdp.evaluate("new Promise((resolve) => setTimeout(resolve, 500))");
@@ -694,7 +698,7 @@ async function runScan(cdp: Cdp, dir: string) {
     return;
   }
   const preview = await cdp.evaluate<{ name: string; time: string }[]>("window.__go7Cut.slots()");
-  const filled = preview.slice(0, 3).filter((slot) => slot.name && slot.name !== "Empty slot").length;
+  const filled = preview.slice(0, 3).filter((slot) => !slotOpen(slot.name)).length;
   const subject = filled >= 3 ? "gardening" : "funny dogs";
   const found = await cdp.evaluate<{
     ok: boolean;
@@ -707,8 +711,8 @@ async function runScan(cdp: Cdp, dir: string) {
     note("ai", "Find clips", false, found.detail || found.banner || "Find clips did not run.");
     return;
   }
-  const placed = found.after.filter((slot, index) => slot.name !== "Empty slot" && found.before[index]?.name === "Empty slot");
-  const kept = found.before.every((slot, index) => slot.name === "Empty slot" || found.after[index]?.name === slot.name);
+  const placed = found.after.filter((slot, index) => !slotOpen(slot.name) && slotOpen(found.before[index]?.name));
+  const kept = found.before.every((slot, index) => slotOpen(slot.name) || found.after[index]?.name === slot.name);
   const about = placed.filter((slot) => titleAboutSubject(slot.name, subject) && !skipSubjectTitle(slot.name, subject));
   const timed = placed.filter((slot) => /File\s+[0-9]/.test(slot.time));
   const ok = kept && placed.length > 0 && about.length === placed.length && timed.length === placed.length && !/could not|not a video|no video/i.test(found.banner || "");
@@ -737,7 +741,7 @@ async function runScan(cdp: Cdp, dir: string) {
     slots?: { name: string }[];
   }>(`window.__go7Cut.askWhich(${JSON.stringify(chosen.name)})`, 3 * 60 * 1000 + 15_000);
   const reply = (asked.words || []).filter((line) => !line.startsWith("Asking")).join("\n");
-  const names = (asked.slots || []).map((slot) => slot.name).filter((name) => name && name !== "Empty slot");
+  const names = (asked.slots || []).map((slot) => slot.name).filter((name) => !slotOpen(name));
   const ids = names.map((_, index) => `c${index + 1}`);
   if (!asked.ok || !reply) {
     note("ai", "Which clip", false, `${chosen.kind}. ${asked.detail || asked.asks || "No reply."}`);
