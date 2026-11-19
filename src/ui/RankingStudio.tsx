@@ -12,6 +12,7 @@ import {
   rankingClipRange,
   shelfName,
   shuffleIds,
+  slotRank,
   spokenLine,
   storedLineColor,
   storedLineSize,
@@ -54,7 +55,7 @@ const RANKING_HEADLINE = "Ranking the funniest\ncartoon moments";
 function makeSlots(count: number): Slot[] {
   return Array.from({ length: count }, (_, index) => ({
     id: uid(),
-    rank: count - index,
+    rank: slotRank(undefined, index, count),
     title: "",
     note: "",
     inSec: 0,
@@ -159,13 +160,12 @@ function slotsFromFlick(flick: Flick, media: ResolvedMedia[]): Slot[] {
   return Array.from({ length: count }, (_, index) => {
     const clip = ranked[index];
     const blank = makeSlots(1)[0];
-    if (!clip) return { ...blank, rank: count - index };
+    if (!clip) return { ...blank, rank: slotRank(undefined, index, count) };
     const asset = media.find((item) => item.id === clip.mediaId);
-    const rankMatch = /^#(\d+)$/.exec(clip.label);
     const duration = asset && asset.durationSec > 0 ? asset.durationSec : 0;
     return {
       id: uid(),
-      rank: rankMatch ? Number(rankMatch[1]) : Math.max(1, ranked.length - index),
+      rank: slotRank(clip.label, index, count),
       title: clip.line ?? "",
       note: clip.sourceUrl ?? "",
       inSec: clip.inSec,
@@ -596,7 +596,7 @@ export function RankingStudio({
       makeSlots(count).map((item, index) => ({
         ...item,
         ...(rows[index] ?? {}),
-        rank: count - index,
+        rank: slotRank(undefined, index, count),
         id: rows[index]?.id ?? item.id,
       })),
     );
@@ -678,10 +678,9 @@ export function RankingStudio({
     if (!ranked.length) return;
     setSlots(
       ranked.map((clip, index) => {
-        const rankMatch = /^#(\d+)$/.exec(clip.label);
         return {
           id: uid(),
-          rank: rankMatch ? Number(rankMatch[1]) : ranked.length - index,
+          rank: slotRank(clip.label, index, ranked.length),
           title: titleFromClip(clip),
           note: "",
           inSec: 0,

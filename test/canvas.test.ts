@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   applyDualLayout,
-  applyDualShare,
   assignLinesInOrder,
   builtinTemplates,
   deleteClip,
@@ -12,7 +13,9 @@ import {
   importedLines,
   moveClip,
   playbackOrder,
+  slotRank,
   splitClip,
+  splitEvenly,
   templateFromFlick,
   fitClipsToMedia,
   exportSavePath,
@@ -211,6 +214,16 @@ test("dual video is half and half, with two clips, and the seam still moves", ()
   assert.equal(gameOnTop.find((region) => region.trackId === "track-game")?.height, 0.5);
   assert.equal(gameOnTop.find((region) => region.trackId === "track-face")?.y, 0.5);
 
+  const gameTopFace = applyDualLayout(flick.regions, "game-top", "face-larger");
+  assert.equal(gameTopFace.find((region) => region.trackId === "track-face")?.height, 0.6);
+  assert.equal(gameTopFace.find((region) => region.trackId === "track-game")?.y, 0);
+  assert.equal(gameTopFace.find((region) => region.trackId === "track-game")?.height, 0.4);
+
+  const gameTopGame = applyDualLayout(flick.regions, "game-top", "game-larger");
+  assert.equal(gameTopGame.find((region) => region.trackId === "track-game")?.height, 0.6);
+  assert.equal(gameTopGame.find((region) => region.trackId === "track-face")?.y, 0.6);
+  assert.equal(gameTopGame.find((region) => region.trackId === "track-face")?.height, 0.4);
+
   const laid = applyDualLayout(flick.regions, "face-top", "half");
   const top = laid.find((region) => region.y === 0);
   assert.ok(top);
@@ -245,6 +258,19 @@ test("skip around plays outside in and leaves the rank numbers alone", () => {
     playbackOrder(five, "countdown").map((slot) => slot.rank),
     [5, 4, 3, 2, 1],
   );
+  const rail = [
+    { id: "e", rank: 1 },
+    { id: "a", rank: 5 },
+    { id: "c", rank: 3 },
+  ];
+  assert.deepEqual(
+    playbackOrder(rail, "listed").map((slot) => slot.id),
+    ["e", "a", "c"],
+  );
+  assert.deepEqual(
+    playbackOrder(rail, "listed").map((slot) => slot.rank),
+    [1, 5, 3],
+  );
 });
 
 test("shuffle plays a mixed order and leaves the rank numbers alone", () => {
@@ -265,6 +291,157 @@ test("shuffle plays a mixed order and leaves the rank numbers alone", () => {
     playbackOrder(slots, "shuffle", ["c", "a", "b"]).map((slot) => slot.rank),
     [3, 5, 4],
   );
+});
+
+test("the four built-ins keep their recipes", () => {
+  const templates = builtinTemplates();
+  const split = templates.find((item) => item.id === "builtin-split");
+  const dual = templates.find((item) => item.id === "builtin-dual");
+  const ranking = templates.find((item) => item.id === "builtin-ranking");
+  const blank = templates.find((item) => item.id === "builtin-blank");
+  assert.ok(split && dual && ranking && blank);
+
+  assert.deepEqual(
+    split.regions.map((region) => [region.trackId, region.y, region.height]),
+    [
+      ["track-top", 0, 0.6],
+      ["track-bottom", 0.6, 0.4],
+    ],
+  );
+  assert.deepEqual(
+    split.clips.map((clip) => clip.label),
+    ["Hook", "Beat", "Payoff", "Loop"],
+  );
+  assert.equal(split.tracks.find((track) => track.id === "track-bottom")?.muted, true);
+  assert.equal(split.tracks.find((track) => track.id === "track-top")?.muted, false);
+  const splitFlick = flickFromTemplate(split, "Split");
+  assert.equal(splitFlick.templateId, "builtin-split");
+  assert.equal(split.regions[0].height, 0.6);
+
+  assert.equal(dual.regions[0].height, 0.5);
+  assert.equal(dual.regions[1].height, 0.5);
+  assert.equal(dual.tracks.every((track) => track.muted === false), true);
+
+  assert.deepEqual(
+    ranking.clips.filter((clip) => clip.trackId === "track-top").map((clip) => clip.label),
+    ["#5", "#4", "#3", "#2", "#1"],
+  );
+  assert.equal(ranking.clips.some((clip) => clip.label === "Loop"), true);
+  assert.equal(ranking.tracks.find((track) => track.id === "track-bottom")?.muted, true);
+  assert.equal(ranking.regions[0].height, 0.62);
+  assert.equal(ranking.regions[1].height, 0.38);
+
+  assert.equal(blank.regions.length, 1);
+  assert.equal(blank.regions[0].height, 1);
+  assert.equal(blank.clips.length, 0);
+  const blankFlick = flickFromTemplate(blank, "Blank");
+  assert.equal(blankFlick.clips.length, 0);
+  assert.equal(blankFlick.regions.length, 1);
+  assert.equal(blank.regions[0].id, "region-full");
+});
+
+test("ranking slots number from the top, and a stored rank stays", () => {
+  assert.deepEqual(
+    [0, 1, 2, 3, 4].map((index) => slotRank(undefined, index, 5)),
+    [5, 4, 3, 2, 1],
+  );
+  assert.equal(slotRank(undefined, 0, 6), 6);
+  assert.equal(slotRank(undefined, 5, 6), 1);
+  assert.equal(slotRank(undefined, 0, 7), 7);
+  assert.equal(slotRank(undefined, 6, 7), 1);
+  assert.deepEqual(
+    ["Cat", "Dog", "Bird", "", ""].map((label, index) => slotRank(label, index, 5)),
+    [5, 4, 3, 2, 1],
+  );
+  assert.equal(slotRank("#2", 0, 5), 2);
+  const ranking = readFileSync(fileURLToPath(new URL("../src/ui/RankingStudio.tsx", import.meta.url)), "utf8");
+  assert.equal(ranking.includes("ranked.length - index"), false);
+  assert.ok(ranking.includes("slotRank(clip.label, index, count)"));
+});
+
+test("show rank and show captions travel with the template", () => {
+  const ranking = builtinTemplates().find((item) => item.id === "builtin-ranking");
+  assert.ok(ranking);
+  const flick = flickFromTemplate(ranking, "Quiet");
+  flick.showRank = false;
+  flick.showCaptions = false;
+  const saved = templateFromFlick(flick, "Quiet ranking");
+  assert.equal(saved.showRank, false);
+  assert.equal(saved.showCaptions, false);
+  const again = flickFromTemplate(saved, "Again");
+  assert.equal(again.showRank, false);
+  assert.equal(again.showCaptions, false);
+  flick.showRank = true;
+  flick.showCaptions = true;
+  const shown = templateFromFlick(flick, "Shown");
+  assert.equal(shown.showRank, true);
+  assert.equal(shown.showCaptions, true);
+});
+
+test("split evenly keeps the clip that is already on top", () => {
+  const dual = builtinTemplates().find((item) => item.id === "builtin-dual");
+  const split = builtinTemplates().find((item) => item.id === "builtin-split");
+  const blank = builtinTemplates().find((item) => item.id === "builtin-blank");
+  assert.ok(dual && split && blank);
+
+  const gameTop = applyDualLayout(flickFromTemplate(dual, "Order").regions, "game-top", "game-larger");
+  const even = splitEvenly(gameTop);
+  assert.equal(even.find((region) => region.trackId === "track-game")?.y, 0);
+  assert.equal(even.find((region) => region.trackId === "track-game")?.height, 0.5);
+  assert.equal(even.find((region) => region.trackId === "track-face")?.y, 0.5);
+  assert.equal(even.find((region) => region.trackId === "track-face")?.height, 0.5);
+  assert.equal(even.every((region) => region.hidden === false), true);
+
+  const face = gameTop.find((region) => region.trackId === "track-face");
+  assert.ok(face);
+  const restored = splitEvenly(fullFrame(gameTop, face.id));
+  assert.equal(restored.find((region) => region.trackId === "track-game")?.y, 0);
+  assert.equal(restored.find((region) => region.trackId === "track-face")?.y, 0.5);
+
+  const splitFlick = flickFromTemplate(split, "Even");
+  const evenSplit = splitEvenly(fullFrame(splitFlick.regions, splitFlick.regions[0].id));
+  assert.equal(evenSplit[0].y, 0);
+  assert.equal(evenSplit[0].height, 0.5);
+  assert.equal(evenSplit[1].y, 0.5);
+  assert.equal(evenSplit[1].height, 0.5);
+  assert.equal(evenSplit[1].hidden, false);
+  assert.equal(splitFlick.clips.length, 4);
+
+  const blankEven = splitEvenly(flickFromTemplate(blank, "Blank").regions);
+  assert.equal(blankEven.length, 1);
+  assert.equal(blankEven[0].y, 0);
+  assert.equal(blankEven[0].height, 1);
+});
+
+test("a split-screen flick takes the dual seam on its own tracks", () => {
+  const split = builtinTemplates().find((item) => item.id === "builtin-split");
+  assert.ok(split);
+  const flick = flickFromTemplate(split, "Commentary");
+  const pair = { face: "track-top", game: "track-bottom" };
+  const half = applyDualLayout(flick.regions, "face-top", "half", pair);
+  assert.equal(half.find((region) => region.trackId === "track-top")?.height, 0.5);
+  assert.equal(half.find((region) => region.trackId === "track-bottom")?.y, 0.5);
+  assert.equal(half.find((region) => region.trackId === "track-bottom")?.height, 0.5);
+  const gameTop = applyDualLayout(flick.regions, "game-top", "game-larger", pair);
+  assert.equal(gameTop.find((region) => region.trackId === "track-bottom")?.y, 0);
+  assert.equal(gameTop.find((region) => region.trackId === "track-bottom")?.height, 0.6);
+  assert.equal(gameTop.find((region) => region.trackId === "track-top")?.y, 0.6);
+  assert.equal(gameTop.find((region) => region.trackId === "track-top")?.height, 0.4);
+  const faceTop = applyDualLayout(flick.regions, "face-top", "face-larger", pair);
+  assert.equal(faceTop.find((region) => region.trackId === "track-top")?.height, 0.6);
+  assert.equal(faceTop.find((region) => region.trackId === "track-bottom")?.height, 0.4);
+  assert.equal(split.regions[0].height, 0.6);
+  assert.equal(flick.clips.length, 4);
+
+  const desk = readFileSync(fileURLToPath(new URL("../src/ui/SplitStudio.tsx", import.meta.url)), "utf8");
+  assert.equal(desk.includes("pair.face === DUAL_FACE"), false);
+  assert.match(desk, /applyDualLayout\(shell\.regions, arrangement, preset, pair\)/);
+  assert.match(desk, /faceTop \? 60 : 40/);
+  assert.match(desk, /faceTop \? 40 : 60/);
+  const faceOff = desk.includes("muted: !faceHeard");
+  const gameOff = desk.includes("muted: !gameHeard");
+  assert.equal(faceOff, true);
+  assert.equal(gameOff, true);
 });
 
 test("a heard track stays audible when a voice is on the flick", () => {

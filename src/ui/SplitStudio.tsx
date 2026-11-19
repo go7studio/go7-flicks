@@ -510,11 +510,9 @@ export function SplitStudio({
       }
       const pair = splitTrackPair(shell);
       const regions =
-        pair.face === DUAL_FACE
-          ? preset === "custom"
-            ? applyDualShare(shell.regions, arrangement, topShare)
-            : applyDualLayout(shell.regions, arrangement, preset)
-          : shell.regions;
+        preset === "custom"
+          ? applyDualShare(shell.regions, arrangement, topShare, pair)
+          : applyDualLayout(shell.regions, arrangement, preset, pair);
       const tracks = shell.tracks.map((track) => {
         if (track.id === pair.face) return { ...track, muted: !faceHeard };
         if (track.id === pair.game) return { ...track, muted: !gameHeard };
@@ -944,7 +942,7 @@ function diagramStyle(id: string, arrangement: DualArrangement): CSSProperties {
   if (id === "game-top") return { background: `linear-gradient(${game} 50%, ${face} 50%)` };
   const top = faceTop ? face : game;
   const bottom = faceTop ? game : face;
-  const cut = id === "face-larger" ? (faceTop ? 64 : 36) : id === "game-larger" ? (faceTop ? 36 : 64) : 50;
+  const cut = id === "face-larger" ? (faceTop ? 60 : 40) : id === "game-larger" ? (faceTop ? 40 : 60) : 50;
   return { background: `linear-gradient(${top} ${cut}%, ${bottom} ${cut}%)` };
 }
 

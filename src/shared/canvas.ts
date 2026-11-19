@@ -593,10 +593,24 @@ export function dualTopHeight(arrangement: DualArrangement, preset: DualPreset):
   return arrangement === "face-top" ? faceShare : round3(1 - faceShare);
 }
 
-export function applyDualShare(regions: Region[], arrangement: DualArrangement, topHeight: number): Region[] {
-  const face = regions.find((item) => item.trackId === DUAL_FACE);
-  const game = regions.find((item) => item.trackId === DUAL_GAME);
-  if (!face || !game) return regions;
+/** Number from the top of the list. Five slots start at #5. A stored #n keeps that rank. */
+export function slotRank(label: string | undefined, index: number, count: number): number {
+  const match = /^#(\d+)$/.exec(label?.trim() ?? "");
+  const stored = match ? Number(match[1]) : 0;
+  if (stored >= 1) return stored;
+  const size = Math.max(1, Math.floor(count));
+  return Math.max(1, size - Math.max(0, index));
+}
+
+export function applyDualShare(
+  regions: Region[],
+  arrangement: DualArrangement,
+  topHeight: number,
+  tracks?: { face: string; game: string },
+): Region[] {
+  const face = regions.find((item) => item.trackId === (tracks?.face ?? DUAL_FACE));
+  const game = regions.find((item) => item.trackId === (tracks?.game ?? DUAL_GAME));
+  if (!face || !game || face.id === game.id) return regions;
   const height = round3(Math.min(0.88, Math.max(0.12, topHeight)));
   const topId = arrangement === "face-top" ? face.id : game.id;
   const bottomId = arrangement === "face-top" ? game.id : face.id;
@@ -609,20 +623,33 @@ export function applyDualShare(regions: Region[], arrangement: DualArrangement, 
   });
 }
 
-export function applyDualLayout(regions: Region[], arrangement: DualArrangement, preset: DualPreset): Region[] {
-  return applyDualShare(regions, arrangement, dualTopHeight(arrangement, preset));
+export function applyDualLayout(
+  regions: Region[],
+  arrangement: DualArrangement,
+  preset: DualPreset,
+  tracks?: { face: string; game: string },
+): Region[] {
+  return applyDualShare(regions, arrangement, dualTopHeight(arrangement, preset), tracks);
 }
 
+/** Equal bands in the order already on the frame. Full frame leaves the hidden band at its old place. */
 export function splitEvenly(regions: Region[]): Region[] {
-  const shown = regions.map((region) => ({ ...region, hidden: false }));
-  const count = shown.length || 1;
-  return shown.map((region, index) => ({
-    ...region,
-    x: 0,
-    width: 1,
-    y: round3(index / count),
-    height: round3(1 / count),
-  }));
+  if (regions.length === 0) return regions;
+  const order = regions
+    .map((region, index) => ({ region, index }))
+    .sort((a, b) => a.region.y - b.region.y || Number(b.region.hidden) - Number(a.region.hidden) || a.index - b.index);
+  const count = order.length;
+  const placed = new Map<string, { y: number; height: number }>();
+  order.forEach((item, index) => {
+    const y = round3(index / count);
+    const height = index === count - 1 ? round3(1 - y) : round3(1 / count);
+    placed.set(item.region.id, { y, height });
+  });
+  return regions.map((region) => {
+    const next = placed.get(region.id);
+    if (!next) return { ...region, hidden: false };
+    return { ...region, x: 0, width: 1, y: next.y, height: next.height, hidden: false };
+  });
 }
 
 export function dragSeam(regions: Region[], upperId: string, nextHeight: number): Region[] {
