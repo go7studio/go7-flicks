@@ -12,6 +12,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && vite build && remotion bundle src/remotion/index.ts --out-dir remotion-bundle",
     "test": "tsx --test test/*.test.ts",
+    "test:cut": "tsx scripts/test-cut.ts",
     "verify:export": "tsx scripts/verify-export.ts",
     "pack:win": "npm run build && electron-builder --win --dir",
     "package:win": "electron-builder --win nsis --publish never",
