@@ -286,6 +286,9 @@ test("export cut keeps the music and voice levels", () => {
   assert.match(both, /normalize=0/);
   assert.match(both, /volume=1\.0/);
   assert.match(both, /volume=0\.10/);
+  assert.match(both, /\[2:a\]apad,volume=1\.0\[voice\]/);
+  assert.match(both, /duration=longest/);
+  assert.doesNotMatch(both, /duration=shortest/);
   assert.match(both, /drawtext/);
   const music = cutAudioFilter({ hasVoice: false, hasMusic: true, drawtext: null });
   assert.match(music ?? "", /volume=0\.22/);

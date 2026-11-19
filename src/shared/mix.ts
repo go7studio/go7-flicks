@@ -25,9 +25,10 @@ export function cutAudioFilter(input: { hasVoice: boolean; hasMusic: boolean; dr
   const parts: string[] = [];
   if (input.drawtext) parts.push(`[0:v]${input.drawtext}[v]`);
   if (input.hasVoice) {
-    parts.push(`[2:a]volume=${VOICE_GAIN}[voice]`);
+    // A short voice must not end the picture. The looped music is the long input, and the cut command stops on the video.
+    parts.push(`[2:a]apad,volume=${VOICE_GAIN}[voice]`);
     parts.push(`[1:a]volume=${MUSIC_GAIN_UNDER_VOICE}[music]`);
-    parts.push(`[voice][music]amix=inputs=2:normalize=0:duration=shortest[a]`);
+    parts.push(`[voice][music]amix=inputs=2:normalize=0:duration=longest:dropout_transition=0[a]`);
   } else {
     parts.push(`[1:a]volume=${MUSIC_GAIN}[a]`);
   }

@@ -30,10 +30,15 @@ export function delayVoiceInFilter(filter: string, startSec: number | undefined)
   return filter.replace("[2:a]", `[2:a]${delay},`);
 }
 
+/** Pad the voice so a short file does not end the picture. -shortest then stops on the video. */
+function voicePadFilter(startSec: number | undefined): string {
+  const delay = voiceDelayFilter(startSec);
+  const chain = delay ? `${delay},apad` : "apad";
+  return `[1:a]${chain}[a]`;
+}
+
 /** Copy the picture. Delay only the voice input when the flick asks for it. */
 export function voiceMuxArgs(silent: string, voice: string, output: string, startSec: number | undefined): string[] {
-  const delay = voiceDelayFilter(startSec);
-  if (!delay) return ["-y", "-i", silent, "-i", voice, "-c:v", "copy", "-c:a", "aac", "-shortest", output];
   return [
     "-y",
     "-i",
@@ -41,7 +46,7 @@ export function voiceMuxArgs(silent: string, voice: string, output: string, star
     "-i",
     voice,
     "-filter_complex",
-    `[1:a]${delay}[a]`,
+    voicePadFilter(startSec),
     "-map",
     "0:v",
     "-map",
@@ -275,9 +280,7 @@ async function muxVoice(
   } catch {
     fs.rmSync(output, { force: true });
   }
-  const delay = voiceDelayFilter(startSec);
-  const lead = ["-y", "-i", silent, "-i", voice];
-  if (delay) lead.push("-filter_complex", `[1:a]${delay}[a]`, "-map", "0:v", "-map", "[a]");
+  const lead = ["-y", "-i", silent, "-i", voice, "-filter_complex", voicePadFilter(startSec), "-map", "0:v", "-map", "[a]"];
   await runVideo(
     ffmpeg,
     [...lead, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"],

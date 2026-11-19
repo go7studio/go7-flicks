@@ -88,14 +88,17 @@ test("styled export props include the voice offset", () => {
 test("cut export delays the voice by the offset and leaves the picture", () => {
   const still = voiceMuxArgs("silent.mp4", "voice.mp3", "out.mp4", undefined);
   assert.equal(still.some((arg) => String(arg).includes("adelay")), false);
+  assert.ok(still.includes("[1:a]apad[a]"));
+  assert.equal(still[still.indexOf("-map") + 1], "0:v");
+  assert.ok(still.includes("-shortest"));
   assert.equal(voiceDelayFilter(0), "");
   const delayed = voiceMuxArgs("silent.mp4", "voice.mp3", "out.mp4", 1.25);
-  assert.ok(delayed.includes("[1:a]adelay=1250|1250[a]"));
+  assert.ok(delayed.includes("[1:a]adelay=1250|1250,apad[a]"));
   assert.equal(delayed[delayed.indexOf("-map") + 1], "0:v");
   assert.equal(delayed.includes("-c:v") && delayed[delayed.indexOf("-c:v") + 1], "copy");
-  const graph = "[2:a]volume=1.0[voice];[1:a]volume=0.10[music];[voice][music]amix=inputs=2:normalize=0:duration=shortest[a]";
+  const graph = "[2:a]apad,volume=1.0[voice];[1:a]volume=0.10[music];[voice][music]amix=inputs=2:normalize=0:duration=longest:dropout_transition=0[a]";
   assert.equal(delayVoiceInFilter(graph, 0), graph);
-  assert.match(delayVoiceInFilter(graph, 1.25), /\[2:a\]adelay=1250\|1250,volume=1\.0\[voice\]/);
+  assert.match(delayVoiceInFilter(graph, 1.25), /\[2:a\]adelay=1250\|1250,apad,volume=1\.0\[voice\]/);
 });
 
 test("a partial leftover does not skip the download fallback", () => {
