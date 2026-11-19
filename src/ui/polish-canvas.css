@@ -8,52 +8,75 @@
   font-family: "Segoe UI", "Avenir Next", sans-serif;
 }
 
-/* Toolbar: tighter wrap, paper card bar, gold primary Export */
+/* Toolbar: quiet leave links, one gold action. Export styled stays the gold button. */
 .app.canvas-screen .toolbar {
-  min-height: 72px;
-  padding: 12px 20px;
-  gap: 10px 14px;
+  min-height: 52px;
+  padding: 8px 14px;
+  gap: 6px 10px;
   align-items: center;
   background: #fffdf8;
   border-bottom: 1px solid #e6dfd2;
 }
 
 .app.canvas-screen .canvas-nav {
-  gap: 8px;
-  padding-right: 14px;
-  margin-right: 4px;
+  flex: 0 1 auto;
+  gap: 2px;
+  padding-right: 12px;
+  margin-right: 2px;
   border-right: 1px solid #e6dfd2;
 }
 
 .app.canvas-screen .flick-name {
-  min-height: 40px;
-  border-radius: 10px;
+  width: 220px;
+  min-height: 36px;
+  border-radius: 999px;
   border-color: #e6dfd2;
   background: #fffdf8;
+  font-weight: 650;
+}
+
+.app.canvas-screen .toolbar .muted.tiny {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .app.canvas-screen .toolbar .btn {
-  min-height: 40px;
-  border-radius: 10px;
-  border-color: #cfc6b8;
-  background: #fffdf8;
-  color: #1c1915;
+  min-height: 34px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border-color: transparent;
+  background: transparent;
+  color: #5c564c;
   font-weight: 650;
+  box-shadow: none;
 }
 
 .app.canvas-screen .toolbar .btn:hover {
   background: #f8f1e3;
+  border-color: transparent;
+  color: #1c1915;
+}
+
+.app.canvas-screen .toolbar .btn[aria-label="Export top picture"] {
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
+}
+
+.app.canvas-screen .toolbar .btn[aria-label="Export top picture"]:hover {
+  background: #f8f1e3;
   border-color: #1c1915;
+  color: #1c1915;
 }
 
 .app.canvas-screen .toolbar .btn-primary {
-  min-height: 44px;
-  padding: 10px 18px;
+  min-height: 40px;
+  padding: 8px 16px;
   background: #e2b340;
   color: #1c1915;
   border: 1px solid #c9a15b;
-  border-radius: 12px;
-  font-size: 16px;
+  border-radius: 999px;
+  font-size: 15px;
   font-weight: 750;
   box-shadow: 0 8px 18px rgba(226, 179, 64, 0.28);
 }
@@ -72,47 +95,69 @@
 }
 
 .app.canvas-screen .banner {
-  margin: 10px 20px 0;
-  padding: 8px 16px;
+  margin: 6px 16px 0;
+  padding: 6px 12px;
   background: #f8f1e3;
   border: 1px solid #e6dfd2;
-  border-radius: 12px;
+  border-radius: 10px;
   color: #1c1915;
 }
 
 .app.canvas-screen .upload-paste {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  padding: 5px 12px;
 }
 
 .app.canvas-screen .upload-paste p {
   margin: 0;
 }
 
+.app.canvas-screen .upload-paste > p {
+  flex: 1 1 280px;
+  min-width: 0;
+  color: #5c564c;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
 .app.canvas-screen .upload-paste-row {
+  flex: 1 1 200px;
   display: flex;
   gap: 8px;
-  align-items: flex-start;
+  align-items: center;
+  min-width: 0;
 }
 
 .app.canvas-screen .upload-paste-label {
   flex: none;
-  min-width: 6.5rem;
-  padding-top: 2px;
-  font-weight: 650;
+  min-width: 0;
+  padding-top: 0;
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .app.canvas-screen .upload-paste-text {
   flex: 1;
   min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.3;
   user-select: text;
 }
 
 .app.canvas-screen .upload-paste-row .btn {
   flex: none;
+  min-height: 28px;
+  padding: 2px 10px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 /* Shelf rail: paper sticky, card rhythm */
@@ -270,17 +315,37 @@
   border-color: #1c1915;
 }
 
-/* Stage: paper field; frame keeps existing 1px gold hairline */
+/* Stage: the phone fills the room between the shelf and the inspector. */
+.app.canvas-screen .workspace {
+  grid-template-columns: 220px minmax(0, 1fr) 248px;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.app.canvas-screen .shelf-rail,
+.app.canvas-screen .inspector,
 .app.canvas-screen .stage-wrap {
+  min-height: 0;
+  height: 100%;
+}
+
+.app.canvas-screen .stage-wrap {
+  container-type: size;
+  display: grid;
+  place-items: center;
   background: #f7f3ea;
-  padding: 18px;
+  padding: 8px;
 }
 
 .app.canvas-screen .frame-wrap {
+  width: min(100cqw, calc(100cqh * 9 / 16));
+  height: min(100cqh, calc(100cqw * 16 / 9));
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 9 / 16;
   border: 1px solid #e2b340;
   border-radius: 28px;
-  background: transparent;
-  box-shadow: 0 18px 40px rgba(36, 28, 20, 0.08);
+  background: #1c1915;
+  box-shadow: 0 18px 40px rgba(36, 28, 20, 0.14);
 }
 
 /* Inspector: section breathing, ink labels, paper fields */
@@ -371,29 +436,31 @@
   border-radius: 12px;
 }
 
-/* Timeline transport: one aligned row; gold Play */
+/* Timeline: lanes you can tell apart. Rank is a bar, not a hairline. */
 .app.canvas-screen .timeline {
   background: #fffdf8;
   border-top: 1px solid #e6dfd2;
-  padding: 12px 14px 16px;
+  padding: 8px 12px 10px;
+  max-height: 42vh;
+  overflow: auto;
 }
 
 .app.canvas-screen .lane-transport {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px 12px;
-  min-height: 48px;
-  margin-bottom: 12px;
+  gap: 8px 10px;
+  min-height: 40px;
+  margin-bottom: 8px;
 }
 
 .app.canvas-screen .btn.lane-play {
-  min-height: 44px;
-  padding: 10px 18px;
+  min-height: 36px;
+  padding: 6px 16px;
   background: #e2b340;
   color: #1c1915;
   border: 1px solid #c9a15b;
-  border-radius: 12px;
+  border-radius: 999px;
   font-size: 15px;
   font-weight: 750;
   box-shadow: 0 8px 18px rgba(226, 179, 64, 0.28);
@@ -427,12 +494,12 @@
 
 .app.canvas-screen .lane-split,
 .app.canvas-screen .btn.lane-history {
-  min-height: 40px;
-  padding: 8px 14px;
-  border-radius: 10px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 999px;
   background: #fffdf8;
-  border: 1px solid #cfc6b8;
-  color: #1c1915;
+  border: 1px solid #e6dfd2;
+  color: #5c564c;
   font-weight: 650;
 }
 
@@ -485,4 +552,93 @@
   background: #e2b340;
   border: 2px solid #fffdf8;
   box-shadow: 0 0 0 1px #c9a15b;
+}
+
+.app.canvas-screen .lane-stack {
+  gap: 8px;
+}
+
+.app.canvas-screen .lane,
+.app.canvas-screen .lane-plate {
+  min-height: 52px;
+}
+
+.app.canvas-screen .lane {
+  height: 52px;
+}
+
+.app.canvas-screen .clip-block {
+  top: 5px;
+  height: calc(100% - 10px);
+}
+
+.app.canvas-screen .clip-title {
+  line-height: 42px;
+}
+
+.app.canvas-screen .track-row[data-lane="Time"] .lane-plate {
+  background: #fffdf8;
+  box-shadow: inset 4px 0 0 #cfc6b8;
+}
+
+.app.canvas-screen .track-row[data-lane="Time"] .lane {
+  background: #fffdf8;
+  border-color: #e6dfd2;
+}
+
+.app.canvas-screen .lane-rank .lane-plate {
+  background: #f6e7c2;
+  border-color: #e2c98a;
+  box-shadow: inset 4px 0 0 #e2b340;
+}
+
+.app.canvas-screen .lane-rank .lane {
+  height: 52px;
+  background: #f8efd4;
+  border-color: #e2c98a;
+}
+
+.app.canvas-screen .lane-rank .clip-block,
+.app.canvas-screen .lane-rank .clip-block.on {
+  top: 4px;
+  height: calc(100% - 8px);
+  background: #e2b340;
+  border: 1px solid #c9a15b;
+  color: #1c1915;
+  box-shadow: none;
+}
+
+.app.canvas-screen .lane-rank .clip-block.on {
+  border-width: 2px;
+  border-color: #1c1915;
+}
+
+.app.canvas-screen .lane-loop .lane-plate {
+  background: #ece8e1;
+  border-color: #d5cec3;
+  box-shadow: inset 4px 0 0 #8a8175;
+}
+
+.app.canvas-screen .lane-loop .lane {
+  background: #e7e2d9;
+  border-color: #d5cec3;
+}
+
+.app.canvas-screen .words-row .lane-plate {
+  background: #f8f1e3;
+  border-color: #e4d3b0;
+  box-shadow: inset 4px 0 0 #c9a15b;
+}
+
+.app.canvas-screen .words-row .words-lane {
+  min-height: 52px;
+  background: #fbf8f2;
+  border-color: #e4d3b0;
+}
+
+@media (max-width: 980px) {
+  .app.canvas-screen .workspace {
+    grid-template-columns: 200px minmax(0, 1fr) 220px;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
 }
