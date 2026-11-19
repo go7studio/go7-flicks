@@ -62,6 +62,7 @@ export type FlicksApi = {
   writeLine: (connectionId: string, prompt: string) => Promise<CallResult>;
   askAssistant: (connectionId: string, prompt: string) => Promise<CallResult>;
   makeVoice: (connectionId: string, dir: string, flickId: string, text: string, startSec?: number) => Promise<CallResult>;
+  saveNarration: (dir: string, flickId: string, audioBase64: string, mime: string) => Promise<CallResult>;
   exportCut: (dir: string, flickId: string, outputPath: string) => Promise<CallResult>;
   exportStyled: (dir: string, flickId: string, outputPath: string) => Promise<CallResult>;
 };

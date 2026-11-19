@@ -44,6 +44,7 @@ import { stageSource, stagedPathIfReady } from "./stage";
 import { userDir } from "./vault";
 import { failureLine, trimToAction } from "./action";
 import { probeGpu, probeMedia } from "./probe";
+import { allowsMicrophone, narrationBytes, writeNarration } from "./narration";
 import { askAssistant, previewSpeech, synthesize, testProvider, writeLine } from "./providers";
 import { seedMachineAccounts } from "./seed-accounts";
 import { renderFlick } from "./styled";
@@ -706,6 +707,28 @@ function registerIpc(): void {
       return fail(error);
     }
   });
+  ipcMain.handle("voice:narration", async (_event, dir: string, flickId: string, data: unknown, mime: string) => {
+    try {
+      const bytes = narrationBytes(data);
+      const gpu = await probeGpu();
+      if (!gpu.ffmpegPath) throw new Error("ffmpeg is not available to save the narration.");
+      watch(dir);
+      const dest = await writeNarration(gpu.ffmpegPath, dir, flickId, bytes, String(mime ?? ""));
+      const flick = readFlick(dir, flickId);
+      flick.voiceRelative = "voice.mp3";
+      saveFlick(dir, flick);
+      const local = await stageSource(dest, useStaging());
+      return {
+        ok: true as const,
+        message: "Narration saved.",
+        relativePath: "voice.mp3",
+        previewUrl: fileUrl(local),
+        voiceStartSec: flick.voiceStartSec,
+      };
+    } catch (error) {
+      return fail(error);
+    }
+  });
   ipcMain.handle("export:cut", async (_event, dir: string, flickId: string, outputPath: string) => {
     try {
       return await exportFile("cut", dir, flickId, outputPath);
@@ -823,6 +846,15 @@ async function createWindow(): Promise<void> {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+  const mediaSession = window.webContents.session;
+  mediaSession.setPermissionCheckHandler((_contents, permission, _origin, details) => {
+    if (permission !== "media") return true;
+    return allowsMicrophone(permission, details.mediaType ? [details.mediaType] : undefined);
+  });
+  mediaSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    const types = "mediaTypes" in details ? details.mediaTypes : undefined;
+    callback(allowsMicrophone(permission, types));
   });
   window.webContents.on("console-message", (_event, _level, message) => {
     if (/error|uncaught|failed/i.test(message)) console.error(message);

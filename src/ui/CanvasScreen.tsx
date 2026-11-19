@@ -30,6 +30,7 @@ import {
   visibleSelection,
   warmthOf,
 } from "../shared/canvas";
+import { bytesToBase64, microphoneMessage } from "../shared/microphone";
 import { clipDuration, storedVoiceStart, timelineEnd, uid, type CallResult, type Clip, type ConnectionPublic, type Flick, type ShelfEntry, type Template } from "../shared/model";
 import type { ResolvedMedia } from "../shared/api";
 import type { AssistClip } from "../shared/assist";
@@ -196,6 +197,18 @@ function LeaveNav({
 
 const DESK_TEMPLATES = new Set(["builtin-ranking", "builtin-dual", "builtin-split"]);
 
+function narrationMime(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+  if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+  if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+  return "";
+}
+
+function stopRecordTracks(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
 export function CanvasScreen({
   dir,
   flickId,
@@ -234,6 +247,7 @@ export function CanvasScreen({
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
+  const [recording, setRecording] = useState(false);
   const [upload, setUpload] = useState<UploadHandout | null>(null);
   const [copied, setCopied] = useState<"title" | "description" | "">("");
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -247,6 +261,12 @@ export function CanvasScreen({
   const saveTimer = useRef(0);
   const saveWave = useRef(0);
   const frameRef = useRef<HTMLDivElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordStreamRef = useRef<MediaStream | null>(null);
+  const armingRef = useRef(false);
+  const stopRequestedRef = useRef(false);
+  const openFlickRef = useRef(flickId);
+  openFlickRef.current = flickId;
   const past = useRef<Flick[]>([]);
   const future = useRef<Flick[]>([]);
   const [pastCount, setPastCount] = useState(0);
@@ -383,6 +403,14 @@ export function CanvasScreen({
       void enqueueSave(folder, current, false);
     };
   }, [dir]);
+
+  useEffect(() => {
+    return () => {
+      const rec = recorderRef.current;
+      if (rec && rec.state === "recording") rec.stop();
+      else stopRecordTracks(recordStreamRef.current);
+    };
+  }, [flickId]);
 
   function edit(next: Flick, history: "push" | "replace" = "push") {
     const current = flickRef.current;
@@ -796,6 +824,93 @@ export function CanvasScreen({
     if (previewUrl) setVoiceUrl(previewUrl);
     const latest = flickRef.current ?? current;
     edit({ ...latest, voiceRelative: "voice.mp3", voiceStartSec: storedVoiceStart(startSec) });
+  }
+
+  async function finishNarration(folder: string, flickId: string, blob: Blob, mime: string) {
+    recordStreamRef.current = null;
+    recorderRef.current = null;
+    setRecording(false);
+    if (!blob.size) {
+      if (openFlickRef.current === flickId) setMessage("The recording was empty.");
+      return;
+    }
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const result = await window.flicks!.saveNarration(folder, flickId, bytesToBase64(bytes), mime);
+      if (openFlickRef.current !== flickId) return;
+      if (!result.ok) {
+        setMessage(result.message ?? "Could not save the narration.");
+        return;
+      }
+      const previewUrl = "previewUrl" in result ? (result.previewUrl as string | undefined) : undefined;
+      if (previewUrl) setVoiceUrl(previewUrl);
+      const latest = flickRef.current;
+      if (latest) edit({ ...latest, voiceRelative: "voice.mp3" });
+      setMessage("Narration saved.");
+    } catch (error) {
+      if (openFlickRef.current === flickId) {
+        setMessage(error instanceof Error ? error.message : "Could not save the narration.");
+      }
+    }
+  }
+
+  async function toggleNarration() {
+    const active = recorderRef.current;
+    if (active && active.state === "recording") {
+      active.stop();
+      return;
+    }
+    if (armingRef.current) {
+      stopRequestedRef.current = true;
+      return;
+    }
+    const current = flickRef.current;
+    if (!current) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setMessage("This window cannot use the microphone.");
+      return;
+    }
+    armingRef.current = true;
+    stopRequestedRef.current = false;
+    const folder = dir;
+    const flickId = current.id;
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (stopRequestedRef.current) {
+        stopRecordTracks(stream);
+        stopRequestedRef.current = false;
+        return;
+      }
+      const mime = narrationMime();
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      rec.onstop = () => {
+        stopRecordTracks(stream);
+        const blob = new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" });
+        void finishNarration(folder, flickId, blob, rec.mimeType || mime || "audio/webm");
+      };
+      recordStreamRef.current = stream;
+      recorderRef.current = rec;
+      rec.start(1000);
+      if (stopRequestedRef.current) {
+        rec.stop();
+        return;
+      }
+      setRecording(true);
+      setMessage("Recording. Press Stop when you are done.");
+    } catch (error) {
+      stopRecordTracks(stream);
+      recordStreamRef.current = null;
+      recorderRef.current = null;
+      setRecording(false);
+      setMessage(microphoneMessage(error));
+    } finally {
+      armingRef.current = false;
+    }
   }
 
   async function saveTemplate() {
@@ -1439,6 +1554,14 @@ export function CanvasScreen({
                 </button>
                 <button className="btn" disabled={Boolean(busy)} onClick={() => void runVoice()}>
                   Make voice
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={Boolean(busy) && !recording}
+                  onClick={() => void toggleNarration()}
+                >
+                  {recording ? "Stop" : "Record narration"}
                 </button>
               </div>
               <div className="row">

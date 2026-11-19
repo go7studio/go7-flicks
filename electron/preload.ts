@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld("flicks", {
   askAssistant: (connectionId: string, prompt: string) => invoke("ai:ask", connectionId, prompt),
   makeVoice: (connectionId: string, dir: string, flickId: string, text: string, startSec?: number) =>
     invoke("ai:voice", connectionId, dir, flickId, text, startSec),
+  saveNarration: (dir: string, flickId: string, audioBase64: string, mime: string) =>
+    invoke("voice:narration", dir, flickId, audioBase64, mime),
   exportCut: (dir: string, flickId: string, outputPath: string) => invoke("export:cut", dir, flickId, outputPath),
   exportStyled: (dir: string, flickId: string, outputPath: string) => invoke("export:styled", dir, flickId, outputPath),
 });
