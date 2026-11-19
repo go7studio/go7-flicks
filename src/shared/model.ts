@@ -65,6 +65,8 @@ export type Clip = {
   line?: string;
   /** 0 is the left edge of the picture, 1 is the right. The vertical crop keeps the person there. */
   focus?: number;
+  /** One local audio file copied onto this cut. It plays once when the cut starts. */
+  soundRelative?: string;
 };
 
 export type MediaAsset = {
@@ -200,6 +202,14 @@ export function timelineEnd(clips: { startSec: number; inSec: number; outSec: nu
 
 export function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+const SOUND_FILE = /^sound-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(mp3|m4a|wav|aac)$/i;
+
+/** A sound file lives beside the flick. Anything else is dropped. */
+export function storedSoundRelative(value: unknown): string | undefined {
+  if (typeof value !== "string" || !SOUND_FILE.test(value)) return undefined;
+  return value;
 }
 
 /** One voice.mp3 for the flick. A missing or negative offset starts at the beginning. */

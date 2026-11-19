@@ -1,6 +1,6 @@
 import { AbsoluteFill, Audio, OffthreadVideo, Sequence, Video, useCurrentFrame, useVideoConfig } from "remotion";
 import { accentOnPaper, inkOnPaper, lineSizeOf, spokenLine, titleFontFamily, visibleRegions, warmthWash } from "../shared/canvas";
-import { VOICE_VOLUME, clipAudible, musicVolume } from "../shared/mix";
+import { SOUND_VOLUME, VOICE_VOLUME, clipAudible, musicVolume } from "../shared/mix";
 import { type Clip, type Flick, type Region, type Track, clipDuration, storedVoiceStart } from "../shared/model";
 
 export type RenderClip = {
@@ -15,6 +15,8 @@ export type RenderClip = {
   fileName?: string;
   src?: string;
   focus?: number;
+  /** One local sound, played once from the start of this cut. */
+  soundSrc?: string;
 };
 
 export type FlickProps = {
@@ -212,6 +214,13 @@ export const FlickComposition = (props: FlickProps) => {
           {paintWords(props.headline, props.headlineColor || props.accent, props.accentWords || "")}
         </div>
       ) : null}
+      {props.clips.map((clip) =>
+        clip.soundSrc ? (
+          <Sequence key={`${clip.id}-sound`} from={Math.max(0, Math.round(clip.startSec * fps))}>
+            <Audio src={clip.soundSrc} volume={SOUND_VOLUME} />
+          </Sequence>
+        ) : null,
+      )}
       {props.musicSrc ? <Audio src={props.musicSrc} loop volume={musicVolume(Boolean(props.voiceSrc))} /> : null}
       {props.voiceSrc ? (
         <Sequence from={voiceFrom}>

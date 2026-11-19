@@ -26,6 +26,8 @@ import {
   duplicateFlick,
   forgetRecent,
   readFlick,
+  attachSound,
+  clearSound,
   recentChannels,
   removeMedia,
   saveConnection,
@@ -46,7 +48,7 @@ import { askAssistant, previewSpeech, synthesize, testProvider, writeLine } from
 import { seedMachineAccounts } from "./seed-accounts";
 import { renderFlick } from "./styled";
 import type { FlickProps } from "../src/remotion/FlickComposition";
-import { storedVoiceStart, type ChannelFile, type ConnectionDraft, type Flick, type MediaAsset } from "../src/shared/model";
+import { storedSoundRelative, storedVoiceStart, type ChannelFile, type ConnectionDraft, type Flick, type MediaAsset } from "../src/shared/model";
 import { subjectCount } from "../src/shared/subject";
 
 const gate: MediaGate = { channelDir: null, channel: null, stagingDir: null };
@@ -165,6 +167,33 @@ async function payload(dir: string, channel: ChannelFile, stageIds?: Set<string>
   return { ok: true as const, dir, channel, media: await present(dir, channel, stageIds), mediaBase };
 }
 
+async function soundPreviewMap(dir: string, flick: Flick): Promise<Record<string, string>> {
+  const staging = useStaging();
+  const previews: Record<string, string> = {};
+  for (const clip of flick.clips) {
+    const relative = storedSoundRelative(clip.soundRelative);
+    if (!relative) continue;
+    const absolute = path.join(dir, "flicks", flick.id, relative);
+    if (!fs.existsSync(absolute)) continue;
+    const local = await stageSource(absolute, staging);
+    previews[clip.id] = fileUrl(local);
+  }
+  return previews;
+}
+
+async function stagedSounds(dir: string, flick: Flick): Promise<Record<string, string>> {
+  const staging = useStaging();
+  const files: Record<string, string> = {};
+  for (const clip of flick.clips) {
+    const relative = storedSoundRelative(clip.soundRelative);
+    if (!relative) continue;
+    const absolute = path.join(dir, "flicks", flick.id, relative);
+    if (!fs.existsSync(absolute)) throw new Error("The sound file is missing.");
+    files[clip.id] = await stageSource(absolute, staging);
+  }
+  return files;
+}
+
 async function voicePreview(dir: string, flick: Flick): Promise<string | null> {
   if (flick.voiceRelative !== "voice.mp3") return null;
   const absolute = path.join(dir, "flicks", flick.id, "voice.mp3");
@@ -181,6 +210,9 @@ async function flickProps(dir: string, channel: ChannelFile, flick: Flick, previ
     const stored = resolveAsset(dir, asset);
     const ready = Boolean(stored && fs.existsSync(stored));
     const absolute = ready && stored ? await stageSource(stored, staging) : stored;
+    const soundRelative = storedSoundRelative(clip.soundRelative);
+    const soundAbs = soundRelative ? path.join(dir, "flicks", flick.id, soundRelative) : "";
+    const soundLocal = soundAbs && fs.existsSync(soundAbs) ? await stageSource(soundAbs, staging) : "";
     clips.push({
       id: clip.id,
       trackId: clip.trackId,
@@ -192,6 +224,7 @@ async function flickProps(dir: string, channel: ChannelFile, flick: Flick, previ
       fileName: asset?.name,
       focus: clip.focus,
       src: absolute ? fileUrl(absolute) : undefined,
+      soundSrc: soundLocal ? fileUrl(soundLocal) : undefined,
     });
   }
   const voiceAbs = flick.voiceRelative ? path.join(dir, "flicks", flick.id, flick.voiceRelative) : "";
@@ -248,6 +281,7 @@ async function exportFile(kind: "cut" | "styled", dir: string, flickId: string, 
       media,
       outputPath,
       voiceFile,
+      soundFiles: await stagedSounds(dir, flick),
       videoBitrate: "8M",
     });
   } else {
@@ -349,7 +383,12 @@ function registerIpc(): void {
     try {
       const channel = watch(dir);
       const flick = readFlick(dir, flickId);
-      return { ...(await payload(dir, channel, usedMediaIds(flick))), flick, voicePreview: await voicePreview(dir, flick) };
+      return {
+        ...(await payload(dir, channel, usedMediaIds(flick))),
+        flick,
+        voicePreview: await voicePreview(dir, flick),
+        soundPreviews: await soundPreviewMap(dir, flick),
+      };
     } catch (error) {
       return fail(error);
     }
@@ -358,6 +397,37 @@ function registerIpc(): void {
     try {
       watch(dir);
       return { ok: true as const, flick: saveFlick(dir, flick) };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("flick:addSound", async (_event, dir: string, flickId: string, clipId: string) => {
+    try {
+      const picked = await dialog.showOpenDialog({
+        properties: ["openFile"],
+        filters: [{ name: "Audio", extensions: ["mp3", "m4a", "wav", "aac"] }],
+      });
+      if (picked.canceled || !picked.filePaths[0]) return { ok: false as const, message: "No file chosen." };
+      watch(dir);
+      const flick = attachSound(dir, flickId, clipId, picked.filePaths[0]);
+      const relative = storedSoundRelative(flick.clips.find((item) => item.id === clipId)?.soundRelative);
+      const absolute = relative ? path.join(dir, "flicks", flick.id, relative) : "";
+      const local = absolute && fs.existsSync(absolute) ? await stageSource(absolute, useStaging()) : "";
+      return {
+        ok: true as const,
+        message: path.basename(picked.filePaths[0]),
+        flick,
+        clipId,
+        previewUrl: local ? fileUrl(local) : undefined,
+      };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("flick:clearSound", async (_event, dir: string, flickId: string, clipId: string) => {
+    try {
+      watch(dir);
+      return { ok: true as const, message: "Sound removed.", flick: clearSound(dir, flickId, clipId), clipId };
     } catch (error) {
       return fail(error);
     }

@@ -68,6 +68,8 @@ export async function exportCut(input: {
   media: MediaAsset[];
   outputPath: string;
   voiceFile?: string;
+  /** Local paths, already copied off a network drive when that was the source. */
+  soundFiles?: Record<string, string>;
   videoBitrate?: string;
 }): Promise<void> {
   const trackId = visibleRegions(input.flick.regions)[0]?.trackId ?? input.flick.tracks[0]?.id;
@@ -79,6 +81,8 @@ export async function exportCut(input: {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "go7flicks-"));
   try {
     const segments: string[] = [];
+    const soundHits: { file: string; startSec: number }[] = [];
+    let packed = 0;
     for (let index = 0; index < clips.length; index += 1) {
       const clip = clips[index];
       const asset = input.media.find((item) => item.id === clip.mediaId);
@@ -90,6 +94,10 @@ export async function exportCut(input: {
       const start = Math.min(clip.inSec, Math.max(0, end - 0.05));
       const span = end - start;
       if (span <= 0.05 || clipDuration(clip) <= 0) continue;
+      const soundFile = input.soundFiles?.[clip.id];
+      if (clip.soundRelative && !soundFile) throw new Error("The sound file is missing.");
+      if (soundFile) soundHits.push({ file: soundFile, startSec: Math.round(packed * 1000) / 1000 });
+      packed += span;
       const canCopy =
         asset?.codec === "h264" && asset.width === input.flick.width && asset.height === input.flick.height;
       let wrote = false;
@@ -159,9 +167,28 @@ export async function exportCut(input: {
     const textFile = credit ? path.join(tmp, "credit.txt") : "";
     if (credit && textFile) fs.writeFileSync(textFile, credit, "utf8");
     const drawtext = credit && font && textFile ? creditDrawtext(font, textFile) : null;
-    const rawFilter = cutAudioFilter({ hasVoice: voiceReady, hasMusic: musicReady, drawtext });
-    const filter = rawFilter ? delayVoiceInFilter(rawFilter, input.flick.voiceStartSec) : rawFilter;
-    if (!musicReady && voiceReady && voice) {
+    const rawFilter = cutAudioFilter({
+      hasVoice: voiceReady,
+      hasMusic: musicReady,
+      drawtext,
+      sounds: soundHits.map((hit) => ({ startSec: hit.startSec })),
+      voiceStartSec: input.flick.voiceStartSec,
+    });
+    const filter = soundHits.length || !rawFilter ? rawFilter : delayVoiceInFilter(rawFilter, input.flick.voiceStartSec);
+    if (soundHits.length && filter) {
+      await muxBed(
+        input.ffmpeg,
+        silent,
+        musicReady && music ? music : "",
+        voiceReady && voice ? voice : "",
+        soundHits,
+        filter,
+        Boolean(drawtext),
+        input.outputPath,
+        input.encoder,
+        input.videoBitrate,
+      );
+    } else if (!musicReady && voiceReady && voice) {
       await muxVoice(input.ffmpeg, silent, voice, input.outputPath, input.encoder, input.videoBitrate, input.flick.voiceStartSec);
     } else if (musicReady && filter && music) {
       await muxMusic(input.ffmpeg, silent, music, voiceReady ? voice : "", filter, Boolean(drawtext), input.outputPath, input.encoder, input.videoBitrate);
@@ -284,6 +311,41 @@ async function muxVoice(
   await runVideo(
     ffmpeg,
     [...lead, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"],
+    output,
+    encoder,
+    videoBitrate,
+    120000,
+  );
+}
+
+async function muxBed(
+  ffmpeg: string,
+  silent: string,
+  music: string,
+  voice: string,
+  sounds: { file: string }[],
+  filter: string,
+  drawtext: boolean,
+  output: string,
+  encoder: string,
+  videoBitrate: string | undefined,
+): Promise<void> {
+  const args = ["-y", "-i", silent];
+  if (music) args.push("-stream_loop", "-1", "-i", music);
+  if (voice) args.push("-i", voice);
+  for (const hit of sounds) args.push("-i", hit.file);
+  args.push("-filter_complex", filter);
+  if (!drawtext) {
+    try {
+      await run(ffmpeg, [...args, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-shortest", output], 120000);
+      if (ready(output)) return;
+    } catch {
+      fs.rmSync(output, { force: true });
+    }
+  }
+  await runVideo(
+    ffmpeg,
+    [...args, "-map", drawtext ? "[v]" : "0:v", "-map", "[a]", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"],
     output,
     encoder,
     videoBitrate,

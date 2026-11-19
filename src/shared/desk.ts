@@ -52,3 +52,23 @@ export function rankingStartId(selectedId: string | undefined, filledIds: readon
   if (selectedId && filledIds.includes(selectedId)) return selectedId;
   return filledIds[0] ?? null;
 }
+
+export type RankingStep = "play" | "hold" | "cut" | "stop";
+
+/**
+ * A ranking cut keeps the last frame until the next file already has its first frame.
+ * Stopping, pausing, or clearing the live picture is not a cut.
+ */
+export function rankingStep(input: {
+  mode: "file" | "cut";
+  sequencing: boolean;
+  currentTime: number;
+  endSec: number;
+  hasNext: boolean;
+  nextReady: boolean;
+}): RankingStep {
+  const slack = input.mode === "cut" ? 0.02 : 0.08;
+  if (!(input.currentTime >= input.endSec - slack)) return "play";
+  if (input.mode !== "cut" || !input.sequencing || !input.hasNext) return "stop";
+  return input.nextReady ? "cut" : "hold";
+}

@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("flicks", {
   createFlick: (dir: string, name: string, templateId: string) => invoke("flick:create", dir, name, templateId),
   readFlick: (dir: string, flickId: string) => invoke("flick:read", dir, flickId),
   saveFlick: (dir: string, flick: Flick) => invoke("flick:save", dir, flick),
+  addSound: (dir: string, flickId: string, clipId: string) => invoke("flick:addSound", dir, flickId, clipId),
+  clearSound: (dir: string, flickId: string, clipId: string) => invoke("flick:clearSound", dir, flickId, clipId),
   duplicateFlick: (dir: string, flickId: string) => invoke("flick:duplicate", dir, flickId),
   deleteFlick: (dir: string, flickId: string) => invoke("flick:delete", dir, flickId),
   importMedia: (dir: string, mode: "copy" | "link") => invoke("media:import", dir, mode),

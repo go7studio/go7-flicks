@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import { voiceMuxArgs } from "../electron/cut";
 import { cutAudioFilter } from "../src/shared/mix";
 import { clipLink } from "../src/shared/link";
-import { FRAME } from "../src/shared/model";
+import { FRAME, storedSoundRelative } from "../src/shared/model";
 import { whichClipPlain } from "../src/shared/assist";
-import { formatClock, phoneHeadline, rankingStartId, slotListTitle, slotTimeLine } from "../src/shared/desk";
+import { formatClock, phoneHeadline, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../src/shared/desk";
 import { builtinTemplates, flickFromTemplate, rankingClipRange, spokenLine } from "../src/shared/canvas";
 import { clipsFromSearch, pickSubjectClips, placeFoundClips, skipSubjectTitle } from "../src/shared/subject";
 import { captionFromFile } from "../src/remotion/FlickComposition";
@@ -211,6 +211,36 @@ test("which clip shows the clip name and the sentence", () => {
   const verdict = whichClipVerdict(plain, ["c1", "c2"], names);
   assert.equal(verdict.ok, true);
   assert.equal(verdict.named, names[0]);
+});
+
+test("a ranking cut waits for the next frame instead of clearing the picture", () => {
+  assert.equal(rankingStep({ mode: "cut", sequencing: true, currentTime: 1, endSec: 4, hasNext: true, nextReady: true }), "play");
+  assert.equal(rankingStep({ mode: "cut", sequencing: true, currentTime: 3.99, endSec: 4, hasNext: true, nextReady: true }), "cut");
+  assert.equal(rankingStep({ mode: "cut", sequencing: true, currentTime: 4, endSec: 4, hasNext: true, nextReady: false }), "hold");
+  assert.equal(rankingStep({ mode: "cut", sequencing: true, currentTime: 4, endSec: 4, hasNext: false, nextReady: false }), "stop");
+  assert.equal(rankingStep({ mode: "file", sequencing: true, currentTime: 10, endSec: 10, hasNext: true, nextReady: true }), "stop");
+  assert.match(ranking, /data-deck=\{liveFace === 0 \? "live" : "next"\}/);
+  assert.equal(ranking.includes("preview.current?.pause()"), false);
+});
+
+test("a cut sound plays once under the voice and a second file is just a file name", () => {
+  assert.equal(storedSoundRelative("sound-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.mp3"), "sound-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.mp3");
+  assert.equal(storedSoundRelative("../voice.mp3"), undefined);
+  const bed = cutAudioFilter({
+    hasVoice: true,
+    hasMusic: true,
+    drawtext: null,
+    sounds: [{ startSec: 1.5 }],
+    voiceStartSec: 0,
+  });
+  assert.match(bed ?? "", /volume=1\.0/);
+  assert.match(bed ?? "", /volume=0\.45/);
+  assert.match(bed ?? "", /adelay=1500\|1500/);
+  assert.match(bed ?? "", /amix=inputs=3:normalize=0:duration=longest:dropout_transition=0/);
+  const atStart = cutAudioFilter({ hasVoice: false, hasMusic: false, drawtext: null, sounds: [{ startSec: 0 }] });
+  assert.match(atStart ?? "", /\[1:a\]volume=0\.45,apad\[a\]/);
+  assert.doesNotMatch(atStart ?? "", /adelay/);
+  assert.match(canvas, /Add sound copies one local file/);
 });
 
 test("a gta gameplay clip stays short and skips trailers", () => {

@@ -19,6 +19,7 @@ export type ChannelPayload = {
 export type FlickPayload = ChannelPayload & {
   flick: Flick;
   voicePreview: string | null;
+  soundPreviews?: Record<string, string>;
 };
 
 export type FlicksApi = {
@@ -35,6 +36,8 @@ export type FlicksApi = {
   createFlick: (dir: string, name: string, templateId: string) => Promise<CallResult & { flick?: Flick }>;
   readFlick: (dir: string, flickId: string) => Promise<CallResult & Partial<FlickPayload>>;
   saveFlick: (dir: string, flick: Flick) => Promise<CallResult & { flick?: Flick }>;
+  addSound: (dir: string, flickId: string, clipId: string) => Promise<CallResult & { flick?: Flick; previewUrl?: string; clipId?: string }>;
+  clearSound: (dir: string, flickId: string, clipId: string) => Promise<CallResult & { flick?: Flick; clipId?: string }>;
   duplicateFlick: (dir: string, flickId: string) => Promise<CallResult & { flick?: Flick; channel?: ChannelFile }>;
   deleteFlick: (dir: string, flickId: string) => Promise<CallResult & { channel?: ChannelFile }>;
   importMedia: (dir: string, mode: "copy" | "link") => Promise<CallResult & { asset?: MediaAsset; media?: ResolvedMedia[]; workingCopy?: boolean }>;

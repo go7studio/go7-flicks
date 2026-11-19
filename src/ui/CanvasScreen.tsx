@@ -192,6 +192,7 @@ export function CanvasScreen({
   const [accent, setAccent] = useState("#e2b340");
   const [channelName, setChannelName] = useState("");
   const [voiceUrl, setVoiceUrl] = useState<string | null>(null);
+  const [soundUrls, setSoundUrls] = useState<Record<string, string>>({});
   const [connections, setConnections] = useState<ConnectionPublic[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [shelf, setShelf] = useState<ShelfEntry[]>([]);
@@ -247,6 +248,7 @@ export function CanvasScreen({
       setAccent(result.channel.accent);
       setChannelName(result.channel.name);
       setVoiceUrl(result.voicePreview ?? null);
+      setSoundUrls(result.soundPreviews ?? {});
       setSelectedRegion(
         visibleSelection(opened.regions, opened.clips, opened.regions.find((region) => !region.hidden)?.id ?? null),
       );
@@ -443,9 +445,10 @@ export function CanvasScreen({
         fileName: media.find((item) => item.id === clip.mediaId)?.name,
         focus: clip.focus,
         src: media.find((item) => item.id === clip.mediaId)?.previewUrl ?? undefined,
+        soundSrc: soundUrls[clip.id],
       })),
     };
-  }, [flick, media, accent, voiceUrl]);
+  }, [flick, media, accent, voiceUrl, soundUrls]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -485,6 +488,64 @@ export function CanvasScreen({
     const target = clip?.id ?? selectedClip;
     if (!target) return;
     edit({ ...flick, clips: splitClip(flick.clips, target, playhead) });
+  }
+
+  async function addSound() {
+    const current = flickRef.current;
+    const chosen = current?.clips.find((clip) => clip.id === selectedClip);
+    if (!current || !chosen) {
+      setMessage("Select a cut, then add a sound.");
+      return;
+    }
+    setBusy("Adding sound…");
+    const saved = await flushSave(dir);
+    if (!saved.ok) {
+      setBusy("");
+      return;
+    }
+    const result = await window.flicks!.addSound(dir, current.id, chosen.id);
+    setBusy("");
+    if (!result.ok) {
+      setMessage(result.message ?? "Could not add that sound.");
+      return;
+    }
+    const relative = result.flick?.clips.find((clip) => clip.id === chosen.id)?.soundRelative;
+    if (result.previewUrl) setSoundUrls((urls) => ({ ...urls, [chosen.id]: result.previewUrl! }));
+    const latest = flickRef.current ?? current;
+    edit({
+      ...latest,
+      clips: latest.clips.map((clip) => (clip.id === chosen.id ? { ...clip, soundRelative: relative } : clip)),
+    });
+    setMessage(result.message ? `${result.message} plays once at the start of this cut.` : "Sound plays at the start of this cut.");
+  }
+
+  async function removeSound() {
+    const current = flickRef.current;
+    const chosen = current?.clips.find((clip) => clip.id === selectedClip);
+    if (!current || !chosen?.soundRelative) return;
+    setBusy("Removing sound…");
+    const saved = await flushSave(dir);
+    if (!saved.ok) {
+      setBusy("");
+      return;
+    }
+    const result = await window.flicks!.clearSound(dir, current.id, chosen.id);
+    setBusy("");
+    if (!result.ok) {
+      setMessage(result.message ?? "Could not remove that sound.");
+      return;
+    }
+    setSoundUrls((urls) => {
+      const next = { ...urls };
+      delete next[chosen.id];
+      return next;
+    });
+    const latest = flickRef.current ?? current;
+    edit({
+      ...latest,
+      clips: latest.clips.map((clip) => (clip.id === chosen.id ? { ...clip, soundRelative: undefined } : clip)),
+    });
+    setMessage("Sound removed.");
   }
 
   async function addMusic() {
@@ -1312,6 +1373,21 @@ export function CanvasScreen({
                   Make voice
                 </button>
               </div>
+              <div className="row">
+                <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void addSound()}>
+                  Add sound
+                </button>
+                {selected.soundRelative ? (
+                  <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void removeSound()}>
+                    Remove sound
+                  </button>
+                ) : null}
+              </div>
+              <p className="muted tiny">
+                {selected.soundRelative
+                  ? "This cut has a sound. It plays once at the start, under the voice. Add sound again to replace it."
+                  : "Add sound copies one local file and plays it once at the start of this cut, under the voice."}
+              </p>
               <button
                 className="btn-danger"
                 onClick={() => {
@@ -1363,7 +1439,7 @@ export function CanvasScreen({
             </div>
           ) : null}
           <p className="muted">
-            Export top picture keeps the top picture. Captions, headlines, ranks, and clip audio are not in that file. Its sound is the voice and the music. Export styled plays the clips as well.
+            Export top picture keeps the top picture. Captions, headlines, ranks, and clip audio are not in that file. Its sound is the voice, the music, and any sound added to a cut. Export styled plays the clips as well.
           </p>
           <button className="btn" onClick={() => setSavingTemplate(true)}>
             Save as template

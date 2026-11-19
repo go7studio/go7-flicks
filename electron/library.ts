@@ -12,6 +12,7 @@ import {
   type MediaAsset,
   type RecentChannel,
   type Template,
+  storedSoundRelative,
   uid,
 } from "../src/shared/model";
 import { latestUpdatedAt } from "../src/shared/when";
@@ -106,6 +107,45 @@ export function createFlick(dir: string, rawName: string, templateId: string): F
   writeFlick(dir, flick);
   writeJson(path.join(dir, "channel.json"), channel);
   return flick;
+}
+
+const SOUND_EXT = new Set([".mp3", ".m4a", ".wav", ".aac"]);
+
+/** Copy one local audio file onto a cut. A second file on that cut replaces the first. */
+export function attachSound(dir: string, flickId: string, clipId: string, source: string): Flick {
+  if (!fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error("That file is missing.");
+  const ext = path.extname(source).toLowerCase();
+  if (!SOUND_EXT.has(ext)) throw new Error("Use an mp3, m4a, wav, or aac file.");
+  assertId(clipId);
+  const flick = readFlick(dir, flickId);
+  const clip = flick.clips.find((item) => item.id === clipId);
+  if (!clip) throw new Error("Select a cut, then add a sound.");
+  const relative = `sound-${clipId}${ext}`;
+  const folder = path.join(dir, "flicks", flickId);
+  fs.mkdirSync(folder, { recursive: true });
+  const previous = storedSoundRelative(clip.soundRelative);
+  if (previous && previous !== relative) {
+    const oldFile = path.join(folder, previous);
+    if (fs.existsSync(oldFile)) fs.rmSync(oldFile, { force: true });
+  }
+  fs.copyFileSync(source, path.join(folder, relative));
+  clip.soundRelative = relative;
+  return saveFlick(dir, flick);
+}
+
+/** Drop the sound on one cut and delete the copied file. */
+export function clearSound(dir: string, flickId: string, clipId: string): Flick {
+  assertId(clipId);
+  const flick = readFlick(dir, flickId);
+  const clip = flick.clips.find((item) => item.id === clipId);
+  if (!clip) throw new Error("That cut is missing.");
+  const relative = storedSoundRelative(clip.soundRelative);
+  if (relative) {
+    const file = path.join(dir, "flicks", flickId, relative);
+    if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+  }
+  clip.soundRelative = undefined;
+  return saveFlick(dir, flick);
 }
 
 export function readFlick(dir: string, flickId: string): Flick {
@@ -367,6 +407,7 @@ function sanitizeFlick(flick: Flick): Flick {
       sourceUrl: clip.sourceUrl?.trim() || undefined,
       line: clip.line?.trim() || undefined,
       focus: typeof clip.focus === "number" && Number.isFinite(clip.focus) ? Math.min(1, Math.max(0, clip.focus)) : undefined,
+      soundRelative: storedSoundRelative(clip.soundRelative),
     })),
   } as Flick & { voiceStartSec?: number };
   if (voiceStartSec === undefined) delete clean.voiceStartSec;

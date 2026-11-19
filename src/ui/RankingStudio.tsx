@@ -28,7 +28,7 @@ import { round3, uid, type Clip, type Flick, type Template } from "../shared/mod
 import type { ResolvedMedia } from "../shared/api";
 import { captionFromFile, headlineFromFlick, openDeskFlick, titleFromClip } from "../remotion/FlickComposition";
 import type { AssistClip } from "../shared/assist";
-import { formatClock, phoneHeadline, rankingStartId, slotListTitle, slotTimeLine } from "../shared/desk";
+import { formatClock, phoneHeadline, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../shared/desk";
 import { placeFoundClips, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
 import { whenPhrase } from "../shared/when";
 import "./polish-desks.css";
@@ -84,6 +84,20 @@ function clampOut(next: number, inSec: number, duration: number): number {
 function clampIn(next: number, outSec: number, duration: number): number {
   const end = duration > 0 ? Math.min(outSec, duration) : outSec;
   return round3(Math.min(Math.max(0, next), Math.max(0, end - 0.1)));
+}
+
+function deckTarget(mode: "file" | "cut", item: Slot): number {
+  return mode === "cut" ? Math.max(0, item.inSec) : 0;
+}
+
+function waitFor(video: HTMLVideoElement, event: keyof HTMLMediaElementEventMap): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      video.removeEventListener(event, done);
+      resolve();
+    };
+    video.addEventListener(event, done);
+  });
 }
 
 function folderName(path: string): string {
@@ -207,14 +221,23 @@ export function RankingStudio({
   const [playing, setPlaying] = useState(false);
   const [playKind, setPlayKind] = useState<"ranking" | "clip" | null>(null);
   const [nowSec, setNowSec] = useState(0);
+  const [liveFace, setLiveFace] = useState<0 | 1>(0);
   const slot = slots[selected];
-  const preview = useRef<HTMLVideoElement>(null);
+  const deckA = useRef<HTMLVideoElement>(null);
+  const deckB = useRef<HTMLVideoElement>(null);
+  const liveDeck = useRef<0 | 1>(0);
+  const deckMeta = useRef<Array<{ slotId: string; url: string } | null>>([null, null]);
+  const prepGen = useRef<[number, number]>([0, 0]);
   const wantPlay = useRef(false);
   const playAll = useRef(false);
   const playQueue = useRef<string[]>([]);
-  const handingOff = useRef(false);
+  const holding = useRef(false);
+  const skipPark = useRef(false);
   const span = useRef<"file" | "cut">("file");
   const readySlot = useRef<string | null>(null);
+  const frameWatch = useRef(0);
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
   const keepDraft = useRef(true);
   const draftKey = deskStorageKey(channelDir);
   const [boundKey, setBoundKey] = useState<string | null>(null);
@@ -372,51 +395,118 @@ export function RankingStudio({
     selected,
   ]);
 
+  function nodeAt(index: 0 | 1): HTMLVideoElement | null {
+    return index === 0 ? deckA.current : deckB.current;
+  }
+
+  function hiddenIndex(): 0 | 1 {
+    return liveDeck.current === 0 ? 1 : 0;
+  }
+
+  function raise(index: 0 | 1) {
+    liveDeck.current = index;
+    const front = nodeAt(index);
+    const back = nodeAt(index === 0 ? 1 : 0);
+    if (front) front.style.zIndex = "1";
+    if (back) back.style.zIndex = "0";
+    setLiveFace(index);
+  }
+
+  async function prepare(index: 0 | 1, item: Slot, mode: "file" | "cut"): Promise<boolean> {
+    const video = nodeAt(index);
+    if (!video || !item.previewUrl) return false;
+    const generation = ++prepGen.current[index];
+    const target = deckTarget(mode, item);
+    const same = (video.currentSrc || video.src) === item.previewUrl;
+    video.style.objectPosition = `${(item.focus ?? 0.5) * 100}% center`;
+    if (!same) {
+      video.pause();
+      video.src = item.previewUrl;
+      await waitFor(video, "loadeddata");
+    } else if (video.readyState < 2) {
+      await waitFor(video, "loadeddata");
+    }
+    if (prepGen.current[index] !== generation) return false;
+    if (Math.abs(video.currentTime - target) >= 0.05) {
+      video.pause();
+      const seeked = waitFor(video, "seeked");
+      video.currentTime = target;
+      await seeked;
+    }
+    if (prepGen.current[index] !== generation) return false;
+    deckMeta.current[index] = { slotId: item.id, url: item.previewUrl };
+    if (index !== liveDeck.current) video.pause();
+    video.muted = false;
+    return video.readyState >= 2 && video.videoWidth > 0;
+  }
+
+  function deckReady(index: 0 | 1, item: Slot, mode: "file" | "cut"): boolean {
+    const video = nodeAt(index);
+    if (!video || deckMeta.current[index]?.slotId !== item.id) return false;
+    const target = deckTarget(mode, item);
+    return video.readyState >= 2 && video.videoWidth > 0 && Math.abs(video.currentTime - target) < 0.08;
+  }
+
+  function unlockNext(item: Slot | undefined) {
+    if (!item?.previewUrl) return;
+    const hidden = hiddenIndex();
+    const video = nodeAt(hidden);
+    if (!video) return;
+    if ((video.currentSrc || video.src) !== item.previewUrl) video.src = item.previewUrl;
+    video.muted = true;
+    const started = video.play();
+    void started
+      .then(() => {
+        if (liveDeck.current !== hidden) video.pause();
+        video.muted = false;
+      })
+      .catch(() => {
+        video.muted = false;
+      });
+  }
+
   useEffect(() => {
-    const video = preview.current;
-    if (!video || !slot?.previewUrl) {
+    if (skipPark.current) {
+      skipPark.current = false;
+      return;
+    }
+    const item = slotsRef.current[selected];
+    const index = liveDeck.current;
+    if (!item?.previewUrl) {
       setPlaying(false);
       setNowSec(0);
       return;
     }
     let cancel = false;
-    handingOff.current = false;
-    readySlot.current = null;
-    const park = () => {
-      if (cancel) return;
-      const target = span.current === "cut" ? Math.max(0, slot.inSec) : 0;
-      const go = () => {
-        if (cancel) return;
-        readySlot.current = slot.id;
-        setNowSec(target);
-        if (wantPlay.current) {
-          void video.play().then(() => setPlaying(true)).catch(() => {
-            wantPlay.current = false;
-            setPlaying(false);
-          });
-          return;
-        }
+    const mode = span.current;
+    void prepare(index, item, mode).then((ok) => {
+      if (cancel || !ok) return;
+      const video = nodeAt(index);
+      if (!video) return;
+      readySlot.current = item.id;
+      setNowSec(deckTarget(mode, item));
+      if (!wantPlay.current) {
         video.pause();
         setPlaying(false);
-      };
-      if (Math.abs(video.currentTime - target) < 0.05) {
-        go();
         return;
       }
-      const done = () => {
-        video.removeEventListener("seeked", done);
-        if (!cancel) go();
-      };
-      video.addEventListener("seeked", done);
-      video.currentTime = target;
-    };
-    if (video.readyState >= 1) park();
-    else video.addEventListener("loadeddata", park);
+      void video.play().then(() => {
+        if (cancel) return;
+        setPlaying(true);
+        preloadUpcoming();
+        watchFrames();
+      }).catch(() => {
+        wantPlay.current = false;
+        setPlaying(false);
+        setPlayKind(null);
+      });
+    });
     return () => {
       cancel = true;
-      video.removeEventListener("loadeddata", park);
     };
-  }, [slot?.id, slot?.previewUrl, slot?.inSec]);
+  }, [slot?.id, slot?.previewUrl, slot?.inSec, selected]);
+
+  useEffect(() => () => cancelAnimationFrame(frameWatch.current), []);
 
   function filledIds(): string[] {
     return playbackOrder(slots, playback, orderIds)
@@ -427,8 +517,29 @@ export function RankingStudio({
   function stopSequence() {
     playAll.current = false;
     playQueue.current = [];
-    handingOff.current = false;
+    holding.current = false;
+    cancelAnimationFrame(frameWatch.current);
     setPlayKind(null);
+  }
+
+  function watchFrames() {
+    cancelAnimationFrame(frameWatch.current);
+    const tick = () => {
+      const video = nodeAt(liveDeck.current);
+      const current = slotsRef.current.find((item) => item.id === readySlot.current);
+      if (!video || !current || video.paused || holding.current || !wantPlay.current) return;
+      if (span.current === "cut" && video.currentTime + 0.05 < current.inSec) {
+        frameWatch.current = requestAnimationFrame(tick);
+        return;
+      }
+      const end = endSec(current, video);
+      if (video.currentTime >= end - 0.02) {
+        advanceOrStop(current);
+        return;
+      }
+      frameWatch.current = requestAnimationFrame(tick);
+    };
+    frameWatch.current = requestAnimationFrame(tick);
   }
 
   function endSec(current: Slot, video: HTMLVideoElement): number {
@@ -438,9 +549,56 @@ export function RankingStudio({
     return current.outSec;
   }
 
-  async function startPlay(id: string, mode: "file" | "cut", fromStart: boolean) {
-    const index = slots.findIndex((item) => item.id === id);
-    const target = index >= 0 ? slots[index] : undefined;
+  function nextQueued(): { item: Slot; index: number } | null {
+    const rows = slotsRef.current;
+    for (const id of playQueue.current) {
+      const index = rows.findIndex((item) => item.id === id && item.previewUrl);
+      if (index >= 0) return { item: rows[index], index };
+    }
+    return null;
+  }
+
+  function preloadUpcoming() {
+    if (!playAll.current) return;
+    const next = nextQueued();
+    if (!next) return;
+    const hidden = hiddenIndex();
+    if (deckReady(hidden, next.item, "cut")) return;
+    void prepare(hidden, next.item, "cut");
+  }
+
+  function cutTo(index: 0 | 1, nextIndex: number) {
+    const next = slotsRef.current[nextIndex];
+    const nextVideo = nodeAt(index);
+    const oldVideo = nodeAt(liveDeck.current);
+    if (!next?.previewUrl || !nextVideo || index === liveDeck.current) return;
+    const at = playQueue.current.indexOf(next.id);
+    if (at >= 0) playQueue.current.splice(0, at + 1);
+    holding.current = false;
+    skipPark.current = true;
+    span.current = "cut";
+    wantPlay.current = true;
+    readySlot.current = next.id;
+    nextVideo.muted = false;
+    raise(index);
+    setNowSec(Math.max(0, next.inSec));
+    setPlayKind("ranking");
+    setPlaying(true);
+    setSelected(nextIndex);
+    void nextVideo.play().catch(() => {
+      wantPlay.current = false;
+      setPlaying(false);
+      setPlayKind(null);
+    });
+    oldVideo?.pause();
+    preloadUpcoming();
+    watchFrames();
+  }
+
+  async function startPlay(id: string, mode: "file" | "cut") {
+    const rows = slotsRef.current;
+    const index = rows.findIndex((item) => item.id === id);
+    const target = index >= 0 ? rows[index] : undefined;
     if (!target?.previewUrl) return;
     span.current = mode;
     wantPlay.current = true;
@@ -450,20 +608,18 @@ export function RankingStudio({
       setSelected(index);
       return;
     }
-    const video = preview.current;
+    const videoIndex = liveDeck.current;
+    const ok = await prepare(videoIndex, target, mode);
+    if (!ok || !wantPlay.current) return;
+    const video = nodeAt(videoIndex);
     if (!video) return;
-    const start = mode === "cut" ? Math.max(0, target.inSec) : 0;
-    const end = mode === "cut" ? target.outSec : (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : target.duration || target.outSec);
-    const outside = video.currentTime < start - 0.05 || video.currentTime >= end - 0.08;
-    if (fromStart || outside) {
-      readySlot.current = null;
-      setNowSec(start);
-      if (Math.abs(video.currentTime - start) >= 0.05) video.currentTime = start;
-    }
     readySlot.current = target.id;
+    setNowSec(deckTarget(mode, target));
     try {
       await video.play();
       setPlaying(true);
+      preloadUpcoming();
+      watchFrames();
     } catch {
       wantPlay.current = false;
       setPlaying(false);
@@ -474,7 +630,7 @@ export function RankingStudio({
   function pausePreview() {
     stopSequence();
     wantPlay.current = false;
-    preview.current?.pause();
+    nodeAt(liveDeck.current)?.pause();
     setPlaying(false);
   }
 
@@ -491,9 +647,12 @@ export function RankingStudio({
     }
     const startAt = Math.max(0, order.indexOf(startId));
     playAll.current = true;
+    holding.current = false;
     playQueue.current = [...order.slice(startAt + 1), ...order.slice(0, startAt)];
-    handingOff.current = false;
-    void startPlay(startId, "cut", true);
+    const next = nextQueued();
+    unlockNext(next?.item);
+    if (next) void prepare(hiddenIndex(), next.item, "cut");
+    void startPlay(startId, "cut");
   }
 
   function playThisClip() {
@@ -507,51 +666,84 @@ export function RankingStudio({
       setMessage(current?.mediaId ? "That clip has no preview yet." : "This slot has no clip.");
       return;
     }
-    void startPlay(current.id, "file", true);
+    void startPlay(current.id, "file");
   }
 
-  function advanceOrStop(current: Slot) {
-    if (handingOff.current) return;
-    while (playAll.current && playQueue.current.length) {
-      const nextId = playQueue.current.shift();
-      const next = nextId ? slots.findIndex((item) => item.id === nextId && item.previewUrl) : -1;
-      if (next < 0) continue;
-      handingOff.current = true;
-      readySlot.current = null;
-      span.current = "cut";
-      wantPlay.current = true;
-      preview.current?.pause();
-      setSelected(next);
+  function advanceOrStop(current: Slot, forceEnd = false) {
+    if (holding.current || readySlot.current !== current.id) return;
+    const video = nodeAt(liveDeck.current);
+    const end = video ? endSec(current, video) : current.outSec;
+    const next = playAll.current ? nextQueued() : null;
+    const hidden = hiddenIndex();
+    const step = rankingStep({
+      mode: span.current,
+      sequencing: playAll.current,
+      currentTime: forceEnd ? end : video?.currentTime ?? end,
+      endSec: end,
+      hasNext: Boolean(next),
+      nextReady: Boolean(next && deckReady(hidden, next.item, "cut")),
+    });
+    if (step === "play") return;
+    if (step === "cut" && next) {
+      cutTo(hidden, next.index);
+      return;
+    }
+    if (step === "hold" && next) {
+      holding.current = true;
+      if (video && !video.paused) video.pause();
+      setNowSec(Math.min(video?.currentTime ?? end, end));
+      void prepare(hidden, next.item, "cut").then((ok) => {
+        if (!ok || !holding.current || !playAll.current) return;
+        cutTo(hidden, next.index);
+      });
       return;
     }
     stopSequence();
-    preview.current?.pause();
     wantPlay.current = false;
+    video?.pause();
     setPlaying(false);
-    const video = preview.current;
-    const end = video ? endSec(current, video) : current.duration;
     setNowSec(end);
   }
 
-  function onPreviewTime() {
-    const video = preview.current;
-    const current = slots[selected];
-    if (!video || !current?.previewUrl || handingOff.current) return;
-    if (readySlot.current !== current.id) return;
+  function onPreviewTime(event: React.SyntheticEvent<HTMLVideoElement>) {
+    const video = event.currentTarget;
+    if (video !== nodeAt(liveDeck.current) || holding.current) return;
+    const current = slotsRef.current[selected];
+    if (!current?.previewUrl || readySlot.current !== current.id) return;
     if (span.current === "cut" && video.currentTime + 0.05 < current.inSec) return;
     const end = endSec(current, video);
-    const slack = span.current === "cut" ? 0.02 : 0.08;
-    if (video.currentTime >= end - slack) {
-      advanceOrStop(current);
+    const next = playAll.current ? nextQueued() : null;
+    const step = rankingStep({
+      mode: span.current,
+      sequencing: playAll.current,
+      currentTime: video.currentTime,
+      endSec: end,
+      hasNext: Boolean(next),
+      nextReady: Boolean(next && deckReady(hiddenIndex(), next.item, "cut")),
+    });
+    if (step === "play") {
+      setNowSec(video.currentTime);
       return;
     }
-    setNowSec(video.currentTime);
+    advanceOrStop(current);
   }
 
-  function onPreviewEnded() {
-    const current = slots[selected];
+  function onPreviewEnded(event: React.SyntheticEvent<HTMLVideoElement>) {
+    if (event.currentTarget !== nodeAt(liveDeck.current) || holding.current) return;
+    const current = slotsRef.current.find((item) => item.id === readySlot.current);
     if (!current?.previewUrl) return;
-    advanceOrStop(current);
+    advanceOrStop(current, true);
+  }
+
+  function onDeckPause(event: React.SyntheticEvent<HTMLVideoElement>) {
+    if (event.currentTarget !== nodeAt(liveDeck.current)) return;
+    if (holding.current || wantPlay.current) return;
+    setPlaying(false);
+  }
+
+  function onDeckPlay(event: React.SyntheticEvent<HTMLVideoElement>) {
+    if (event.currentTarget !== nodeAt(liveDeck.current)) return;
+    setPlaying(true);
   }
 
   function patch(next: Partial<Slot>) {
@@ -1027,6 +1219,7 @@ export function RankingStudio({
                     stopSequence();
                     wantPlay.current = false;
                     span.current = "file";
+                    nodeAt(liveDeck.current)?.pause();
                   }
                   setSelected(index);
                 }}
@@ -1092,16 +1285,30 @@ export function RankingStudio({
               aria-label={playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking"}
             >
               {slot?.previewUrl ? (
-                <video
-                  ref={preview}
-                  src={slot.previewUrl}
-                  playsInline
-                  style={{ objectPosition: `${(slot.focus ?? 0.5) * 100}% center` }}
-                  onTimeUpdate={onPreviewTime}
-                  onEnded={onPreviewEnded}
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
-                />
+                <>
+                  <video
+                    ref={deckA}
+                    data-deck={liveFace === 0 ? "live" : "next"}
+                    playsInline
+                    preload="auto"
+                    style={{ zIndex: liveFace === 0 ? 1 : 0 }}
+                    onTimeUpdate={onPreviewTime}
+                    onEnded={onPreviewEnded}
+                    onPlay={onDeckPlay}
+                    onPause={onDeckPause}
+                  />
+                  <video
+                    ref={deckB}
+                    data-deck={liveFace === 1 ? "live" : "next"}
+                    playsInline
+                    preload="auto"
+                    style={{ zIndex: liveFace === 1 ? 1 : 0 }}
+                    onTimeUpdate={onPreviewTime}
+                    onEnded={onPreviewEnded}
+                    onPlay={onDeckPlay}
+                    onPause={onDeckPause}
+                  />
+                </>
               ) : (
                 <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Add a clip"}</p>
               )}
