@@ -786,6 +786,19 @@ export function RankingStudio({
     setSelected(slots.length);
   }
 
+  function startFresh() {
+    pausePreview();
+    setSlots(makeSlots(5));
+    setSelected(0);
+    setHeadline(RANKING_HEADLINE);
+    setAccentWords("funniest");
+    setSubject("");
+    setPasted("");
+    setPlayback("countdown");
+    setOrderIds([]);
+    setMessage("This desk is clear. Rankings already saved stay in the channel.");
+  }
+
   function shuffle() {
     const ids = slots.map((item) => item.id);
     const previous = playback === "shuffle" && orderIds.length === ids.length ? orderIds : ids;
@@ -1265,6 +1278,10 @@ export function RankingStudio({
           <button type="button" className="slot-add" onClick={addSlot}>
             Add a clip
           </button>
+          <button type="button" className="slot-add" onClick={startFresh}>
+            New ranking
+          </button>
+          <p className="desk-note">Clears this desk. Rankings already saved stay in the channel.</p>
           <p className="rail-label">Play order</p>
           <div className="order-stack">
             <button className={playback === "countdown" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("countdown")}>
