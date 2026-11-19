@@ -73,7 +73,7 @@ const minimax = await testProvider(
   row({
     kind: "minimax",
     auth: "key",
-    baseUrl: mini.MINIMAX_ENDPOINT ? new URL(mini.MINIMAX_ENDPOINT).origin + "/v1" : "https://api.minimaxi.chat/v1",
+    baseUrl: mini.MINIMAX_ENDPOINT ? new URL(mini.MINIMAX_ENDPOINT).origin + "/v1" : "https://api.minimax.io/v1",
     model: mini.MINIMAX_MODEL || "MiniMax-M3",
     api: "openai-completions",
   }),

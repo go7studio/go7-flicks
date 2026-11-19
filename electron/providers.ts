@@ -223,7 +223,7 @@ export function codexExecArgs(model: string, lastMessagePath: string, prompt: st
     "--color",
     "never",
     "--model",
-    model.trim() || "gpt-5.6-terra",
+    model.trim() || "gpt-6.1-terra",
     "--skip-git-repo-check",
     "-c",
     "model_reasoning_effort=low",
@@ -411,7 +411,7 @@ async function testOpenAI(
       authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: connection.model,
+      model: connection.kind === "codex" ? connection.model.trim() || "gpt-6.1-terra" : connection.model,
       messages: [{ role: "user", content: prompt }],
       max_tokens: maxTokens,
     }),

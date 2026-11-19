@@ -81,7 +81,7 @@ export function seedMachineAccounts(): string[] {
     added.push("claude");
   }
   if (!rows.some((row) => row.kind === "codex")) {
-    remember("codex", "", { auth: "cli", model: "gpt-5.6-terra" });
+    remember("codex", "", { auth: "cli" });
     added.push("codex");
   }
   if (!rows.some((row) => row.kind === "grok")) {

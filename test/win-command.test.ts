@@ -22,6 +22,11 @@ test("codex exec writes the last message beside the prompt", () => {
   assert.equal(args.at(-1), "Reply with the single word ok.");
 });
 
+test("an empty Codex model falls back to gpt-6.1-terra", () => {
+  const args = codexExecArgs("  ", "C:\\Temp\\last.txt", "ok");
+  assert.equal(args[4], "gpt-6.1-terra");
+});
+
 test("a windows command keeps every sentence of a prompt", () => {
   const line = winCommand("C:\\Tools\\cursor-agent.cmd", ["-p", "First sentence.\nSecond sentence. id=c1 name=Dogs"]);
   assert.equal(line.includes("\n"), false);

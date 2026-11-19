@@ -232,7 +232,7 @@ export function defaultsFor(kind: ConnectionKind): Pick<ConnectionDraft, "auth" 
       name: "Codex",
       auth: "key",
       baseUrl: "https://api.openai.com/v1",
-      model: "gpt-4.1-mini",
+      model: "gpt-6.1-terra",
       api: "openai-completions",
       voiceId: "",
     };
@@ -271,8 +271,8 @@ export function defaultsFor(kind: ConnectionKind): Pick<ConnectionDraft, "auth" 
     return {
       name: "MiniMax",
       auth: "key",
-      baseUrl: "https://api.minimaxi.chat/v1",
-      model: "MiniMax-M3",
+      baseUrl: "https://api.minimax.io/v1",
+      model: "speech-02-turbo",
       api: "openai-completions",
       voiceId: "English_expressive_narrator",
     };

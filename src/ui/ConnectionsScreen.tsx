@@ -74,6 +74,7 @@ export function ConnectionsScreen({
   const [hearError, setHearError] = useState<Record<string, string>>({});
   const player = useRef<HTMLAudioElement | null>(null);
   const previewUrl = useRef<string | null>(null);
+  const hearTicket = useRef(0);
 
   async function reload() {
     setRows(await window.flicks!.connections());
@@ -206,12 +207,29 @@ export function ConnectionsScreen({
     }
   }
 
+  function stopPreview() {
+    const audio = player.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    if (previewUrl.current) {
+      URL.revokeObjectURL(previewUrl.current);
+      previewUrl.current = null;
+    }
+  }
+
   async function hear(slot: Slot) {
     if (!slot.row) return;
+    const ticket = hearTicket.current + 1;
+    hearTicket.current = ticket;
+    stopPreview();
     setBusy(slot.key);
     setHearError((current) => ({ ...current, [slot.key]: "" }));
     try {
       const result = await window.flicks!.hearVoice(slot.row.id);
+      if (ticket !== hearTicket.current) return;
       if (!result.ok || !result.audioBase64) {
         setHearError((current) => ({ ...current, [slot.key]: result.message || "Could not play that voice." }));
         return;
@@ -219,18 +237,19 @@ export function ConnectionsScreen({
       const binary = atob(result.audioBase64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
       const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
       previewUrl.current = url;
       const audio = player.current ?? new Audio();
       player.current = audio;
       audio.src = url;
       await audio.play();
+      if (ticket !== hearTicket.current) audio.pause();
     } catch (error) {
+      if (ticket !== hearTicket.current) return;
       const detail = error instanceof Error ? error.message : "Could not play that voice.";
       setHearError((current) => ({ ...current, [slot.key]: detail }));
     } finally {
-      setBusy(null);
+      if (ticket === hearTicket.current) setBusy(null);
     }
   }
 
