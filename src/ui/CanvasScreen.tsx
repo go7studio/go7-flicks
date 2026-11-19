@@ -80,6 +80,95 @@ function lengthLabel(seconds: number): string {
   return `${minutes}:${rest.toString().padStart(2, "0")}`;
 }
 
+const CANVAS_PANES_KEY = "go7-canvas-panes";
+const SHELF_DEFAULT = 220;
+const INSPECTOR_DEFAULT = 248;
+const SHELF_MIN = 176;
+const INSPECTOR_MIN = 210;
+/** Play, the clock, and one lane stay in view. */
+const TIMELINE_MIN = 148;
+/** The phone keeps a visible stage when a pane is dragged open. */
+const STAGE_MIN_W = 200;
+const STAGE_MIN_H = 220;
+const PANE_HANDLE = 12;
+
+type CanvasPane = "shelf" | "inspector" | "timeline";
+
+type CanvasPanes = {
+  shelf: number;
+  inspector: number;
+  timeline: number | null;
+};
+
+function clampNum(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.round(Math.min(max, Math.max(min, value)));
+}
+
+function readCanvasPanes(): CanvasPanes {
+  const fallback: CanvasPanes = { shelf: SHELF_DEFAULT, inspector: INSPECTOR_DEFAULT, timeline: null };
+  try {
+    const raw = sessionStorage.getItem(CANVAS_PANES_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<CanvasPanes>;
+    return {
+      shelf: Number.isFinite(Number(parsed.shelf)) ? clampNum(Number(parsed.shelf), SHELF_MIN, 1600) : SHELF_DEFAULT,
+      inspector: Number.isFinite(Number(parsed.inspector))
+        ? clampNum(Number(parsed.inspector), INSPECTOR_MIN, 1600)
+        : INSPECTOR_DEFAULT,
+      timeline:
+        parsed.timeline == null || !Number.isFinite(Number(parsed.timeline))
+          ? null
+          : clampNum(Number(parsed.timeline), TIMELINE_MIN, 4000),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function rememberCanvasPanes(panes: CanvasPanes) {
+  try {
+    sessionStorage.setItem(CANVAS_PANES_KEY, JSON.stringify(panes));
+  } catch {
+    /* This window may block storage. The drag still works until reload. */
+  }
+}
+
+function clampDraggedPane(draft: CanvasPanes, which: CanvasPane, width: number, height: number): CanvasPanes {
+  if (which === "timeline") {
+    const maxTimeline = Math.max(TIMELINE_MIN, Math.round(height - STAGE_MIN_H - PANE_HANDLE));
+    return { ...draft, timeline: clampNum(draft.timeline ?? TIMELINE_MIN, TIMELINE_MIN, maxTimeline) };
+  }
+  const across = Math.max(0, width - PANE_HANDLE * 2 - STAGE_MIN_W);
+  if (which === "shelf") {
+    const max = Math.max(SHELF_MIN, across - draft.inspector);
+    return { ...draft, shelf: clampNum(draft.shelf, SHELF_MIN, max) };
+  }
+  const max = Math.max(INSPECTOR_MIN, across - draft.shelf);
+  return { ...draft, inspector: clampNum(draft.inspector, INSPECTOR_MIN, max) };
+}
+
+/** Keeps a stored size inside the current window without moving the other pane first. */
+function fitCanvasPanes(panes: CanvasPanes, width: number, height: number): CanvasPanes {
+  if (width < 480 || height < 280) return panes;
+  const across = Math.max(SHELF_MIN + INSPECTOR_MIN, width - PANE_HANDLE * 2 - STAGE_MIN_W);
+  let shelf = Math.max(SHELF_MIN, panes.shelf);
+  let inspector = Math.max(INSPECTOR_MIN, panes.inspector);
+  if (shelf + inspector > across) {
+    const overflow = shelf + inspector - across;
+    const shelfSlack = Math.max(0, shelf - SHELF_MIN);
+    const takeShelf = Math.min(shelfSlack, overflow);
+    shelf -= takeShelf;
+    inspector = Math.max(INSPECTOR_MIN, inspector - (overflow - takeShelf));
+  }
+  let timeline = panes.timeline;
+  if (timeline != null) {
+    const maxTimeline = Math.max(TIMELINE_MIN, Math.round(height - STAGE_MIN_H - PANE_HANDLE));
+    timeline = clampNum(timeline, TIMELINE_MIN, maxTimeline);
+  }
+  return { shelf: Math.round(shelf), inspector: Math.round(inspector), timeline };
+}
+
 function clipWords(clip: Clip, showRank: boolean | undefined, mediaName?: string): string {
   const line = spokenLine(clip.line, mediaName);
   const rank = showRank === false ? "" : (clip.label.trim().match(/^#\d+$/)?.[0] ?? "");
@@ -271,6 +360,32 @@ export function CanvasScreen({
   const future = useRef<Flick[]>([]);
   const [pastCount, setPastCount] = useState(0);
   const [futureCount, setFutureCount] = useState(0);
+  const [panes, setPanes] = useState<CanvasPanes>(readCanvasPanes);
+  const panesRef = useRef(panes);
+  panesRef.current = panes;
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLElement>(null);
+
+  function applyPanes(next: CanvasPanes) {
+    panesRef.current = next;
+    rememberCanvasPanes(next);
+    setPanes(next);
+  }
+
+  useEffect(() => {
+    const el = workspaceRef.current;
+    if (!el) return;
+    const fit = () => {
+      const next = fitCanvasPanes(panesRef.current, el.clientWidth, el.clientHeight);
+      const current = panesRef.current;
+      if (next.shelf === current.shelf && next.inspector === current.inspector && next.timeline === current.timeline) return;
+      applyPanes(next);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [flick?.id]);
 
   function remember(nextPast: Flick[], nextFuture: Flick[]) {
     past.current = nextPast;
@@ -515,6 +630,7 @@ export function CanvasScreen({
       if (!flick) return;
       const target = event.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable) return;
+      if (target.getAttribute("role") === "separator") return;
       if (event.key === " " && !event.repeat) {
         event.preventDefault();
         playerRef.current?.toggle();
@@ -993,6 +1109,75 @@ export function CanvasScreen({
     window.addEventListener("pointerup", up);
   }
 
+  function beginPaneDrag(event: React.PointerEvent<HTMLDivElement>, which: CanvasPane) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const handle = event.currentTarget;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    const start = panesRef.current;
+    const timelineStart =
+      which === "timeline" ? (start.timeline ?? timelineRef.current?.getBoundingClientRect().height ?? TIMELINE_MIN) : 0;
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      /* The listeners below still follow the pointer when capture is unavailable. */
+    }
+    const previousCursor = document.body.style.cursor;
+    const previousSelect = document.body.style.userSelect;
+    document.body.style.cursor = which === "timeline" ? "row-resize" : "col-resize";
+    document.body.style.userSelect = "none";
+    const move = (ev: PointerEvent) => {
+      const live = workspace.getBoundingClientRect();
+      const draft: CanvasPanes = { ...panesRef.current };
+      if (which === "shelf") draft.shelf = start.shelf + (ev.clientX - originX);
+      else if (which === "inspector") draft.inspector = start.inspector - (ev.clientX - originX);
+      else draft.timeline = timelineStart + (ev.clientY - originY);
+      const next = clampDraggedPane(draft, which, live.width, live.height);
+      const current = panesRef.current;
+      if (next.shelf === current.shelf && next.inspector === current.inspector && next.timeline === current.timeline) return;
+      applyPanes(next);
+    };
+    const up = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousSelect;
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+
+  function nudgePane(event: React.KeyboardEvent<HTMLDivElement>, which: CanvasPane) {
+    const step = event.shiftKey ? 48 : 16;
+    let delta = 0;
+    if (which === "timeline") {
+      if (event.key === "ArrowDown") delta = step;
+      else if (event.key === "ArrowUp") delta = -step;
+    } else if (which === "shelf") {
+      if (event.key === "ArrowRight") delta = step;
+      else if (event.key === "ArrowLeft") delta = -step;
+    } else if (event.key === "ArrowLeft") delta = step;
+    else if (event.key === "ArrowRight") delta = -step;
+    if (!delta) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const bounds = workspace.getBoundingClientRect();
+    const start = panesRef.current;
+    const draft: CanvasPanes = { ...start };
+    if (which === "timeline") {
+      draft.timeline = (start.timeline ?? timelineRef.current?.getBoundingClientRect().height ?? TIMELINE_MIN) + delta;
+    } else if (which === "shelf") draft.shelf = start.shelf + delta;
+    else draft.inspector = start.inspector + delta;
+    applyPanes(clampDraggedPane(draft, which, bounds.width, bounds.height));
+  }
+
   if (!flick || !preview) {
     return (
       <main className="page">
@@ -1085,7 +1270,15 @@ export function CanvasScreen({
           </div>
         </section>
       ) : null}
-      <div className="workspace">
+      <div
+        className="workspace"
+        ref={workspaceRef}
+        style={{
+          ["--shelf-width" as string]: `${panes.shelf}px`,
+          ["--inspector-width" as string]: `${panes.inspector}px`,
+          ...(panes.timeline != null ? { ["--timeline-height" as string]: `${panes.timeline}px` } : {}),
+        }}
+      >
         <aside className="rail shelf-rail">
           <div className="shelf-sticky">
             <div className="shelf-head">
@@ -1217,6 +1410,18 @@ export function CanvasScreen({
             ) : null}
           </div>
         </aside>
+        <div
+          className="pane-split pane-split-v pane-split-shelf"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Clip shelf width"
+          aria-valuemin={SHELF_MIN}
+          aria-valuenow={panes.shelf}
+          tabIndex={0}
+          title="Drag to resize the clip shelf"
+          onPointerDown={(event) => beginPaneDrag(event, "shelf")}
+          onKeyDown={(event) => nudgePane(event, "shelf")}
+        />
         <div className="stage-wrap">
           <div className="frame-wrap" ref={frameRef}>
             <Player
@@ -1256,6 +1461,18 @@ export function CanvasScreen({
             </div>
           </div>
         </div>
+        <div
+          className="pane-split pane-split-v pane-split-inspector"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Inspector width"
+          aria-valuemin={INSPECTOR_MIN}
+          aria-valuenow={panes.inspector}
+          tabIndex={0}
+          title="Drag to resize the inspector"
+          onPointerDown={(event) => beginPaneDrag(event, "inspector")}
+          onKeyDown={(event) => nudgePane(event, "inspector")}
+        />
         <aside className="inspector stack">
           <p className="tiny muted">Canvas</p>
           <label className="stack">
@@ -1637,7 +1854,19 @@ export function CanvasScreen({
           </button>
           {flick.voiceRelative ? <p className="tiny muted">Voice is on this flick.</p> : null}
         </aside>
-        <section className="timeline" aria-label="Clipping lane">
+        <div
+          className="pane-split pane-split-h"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Timeline height"
+          aria-valuemin={TIMELINE_MIN}
+          aria-valuenow={panes.timeline ?? undefined}
+          tabIndex={0}
+          title="Drag to resize the timeline"
+          onPointerDown={(event) => beginPaneDrag(event, "timeline")}
+          onKeyDown={(event) => nudgePane(event, "timeline")}
+        />
+        <section className="timeline" aria-label="Clipping lane" ref={timelineRef}>
           <div className="lane-transport">
             <button type="button" className="btn lane-play" onClick={() => playerRef.current?.toggle()}>
               {playing ? "Pause" : "Play"}

@@ -315,17 +315,128 @@
   border-color: #1c1915;
 }
 
-/* Stage: the phone fills the room between the shelf and the inspector. */
+/* Stage: the phone fills the room between the shelf and the inspector.
+   Gold handles resize the shelf, the inspector, and the timeline for this window. */
 .app.canvas-screen .workspace {
-  grid-template-columns: 220px minmax(0, 1fr) 248px;
-  grid-template-rows: minmax(0, 1fr) auto;
+  --shelf-width: 220px;
+  --inspector-width: 248px;
+  grid-template-columns: var(--shelf-width) 12px minmax(200px, 1fr) 12px var(--inspector-width);
+  grid-template-rows: minmax(220px, 1fr) 12px var(--timeline-height, minmax(148px, 42vh));
+}
+
+.app.canvas-screen .shelf-rail {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.app.canvas-screen .pane-split-shelf {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app.canvas-screen .stage-wrap {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.app.canvas-screen .pane-split-inspector {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.app.canvas-screen .inspector {
+  grid-column: 5;
+  grid-row: 1;
+}
+
+.app.canvas-screen .pane-split-h {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.app.canvas-screen .timeline {
+  grid-column: 1 / -1;
+  grid-row: 3;
 }
 
 .app.canvas-screen .shelf-rail,
 .app.canvas-screen .inspector,
 .app.canvas-screen .stage-wrap {
   min-height: 0;
+  min-width: 0;
   height: 100%;
+}
+
+.app.canvas-screen .pane-split {
+  position: relative;
+  z-index: 4;
+  touch-action: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.app.canvas-screen .pane-split:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: -2px;
+}
+
+.app.canvas-screen .pane-split-v {
+  cursor: col-resize;
+}
+
+.app.canvas-screen .pane-split-v::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 6px;
+  border-radius: 999px;
+  background: #e2b340;
+}
+
+.app.canvas-screen .pane-split-v::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 2px;
+  height: 16px;
+  transform: translateY(-50%);
+  background: radial-gradient(circle, #1c1915 1.15px, transparent 1.3px) 0 0 / 2px 5px repeat-y;
+}
+
+.app.canvas-screen .pane-split-v:hover::before,
+.app.canvas-screen .pane-split-h:hover::before {
+  background: #d4a433;
+}
+
+.app.canvas-screen .pane-split-h {
+  cursor: row-resize;
+}
+
+.app.canvas-screen .pane-split-h::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  width: 64px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e2b340;
+  transform: translateX(-50%);
+  left: calc(var(--shelf-width) + 12px + (100% - var(--shelf-width) - var(--inspector-width) - 24px) / 2);
+}
+
+.app.canvas-screen .pane-split-h::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  width: 18px;
+  height: 2px;
+  transform: translateX(-50%);
+  left: calc(var(--shelf-width) + 12px + (100% - var(--shelf-width) - var(--inspector-width) - 24px) / 2);
+  background: radial-gradient(circle, #1c1915 1.15px, transparent 1.3px) 0 0 / 6px 2px repeat-x;
 }
 
 .app.canvas-screen .stage-wrap {
@@ -441,7 +552,9 @@
   background: #fffdf8;
   border-top: 1px solid #e6dfd2;
   padding: 8px 12px 10px;
-  max-height: 42vh;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
   overflow: auto;
 }
 
@@ -452,6 +565,10 @@
   gap: 8px 10px;
   min-height: 40px;
   margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fffdf8;
 }
 
 .app.canvas-screen .btn.lane-play {
@@ -638,7 +755,7 @@
 
 @media (max-width: 980px) {
   .app.canvas-screen .workspace {
-    grid-template-columns: 200px minmax(0, 1fr) 220px;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: var(--shelf-width) 12px minmax(160px, 1fr) 12px var(--inspector-width);
+    grid-template-rows: minmax(180px, 1fr) 12px var(--timeline-height, minmax(148px, 36vh));
   }
 }
