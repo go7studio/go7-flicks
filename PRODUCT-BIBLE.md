@@ -400,7 +400,7 @@ Still refused, in that same future: embedding the Remotion Timeline, setting `cr
 
 ## 9. Drew and Wes on Windows
 
-Both boys run Windows. This Mac cannot build the NSIS installer, and it has not. No Windows build has been run from this checkout. The short steps they follow are also in `WINDOWS.md`.
+Both boys run Windows. The public page is `https://go7studio.com/products/go7-flicks`. Anyone with the link can open it, including a friend who is not in the family. No Go7 account and no GitHub login. Another PC installs from `Go7Flicks-Setup-<version>.exe`. `npm run dist:win` builds that file. The page and the public setup file are not live yet. No Windows build has been run from this checkout, and the exe is not in the repo. The short steps they follow are also in `WINDOWS.md`.
 
 What is already in the repo, in `package.json`:
 
@@ -414,7 +414,7 @@ What is already in the repo, in `package.json`:
 
 Drew, on his PC: install Node, clone `https://github.com/SteveMLC/go7-flicks.git`, run `npm install`, then `npm run dist:win`. Run `release\Go7Flicks-Setup-0.1.0.exe` and open Go7Flicks. Library, New channel, pick a folder on that PC. From home, open Video Ranking or Split, add clips that are already on the PC, then Open timeline. The encoder line on the canvas should read `h264_nvenc`, `h264_qsv`, `h264_amf`, or `software (libx264)`. Export cut or Export styled. Styled export uses Remotion `hardwareAcceleration: "if-possible"`, 8 Mbps, and no crf. On this Mac that encoder is `h264_videotoolbox`. On Windows with NVIDIA it is `h264_nvenc`. Intel QSV and AMD AMF are not in Remotion's styled path. A pasted link is Get. The app downloads it into the channel.
 
-Wes, on his PC: the same steps, with his own install. He can use an installer file Drew already built, copied onto Wes’s machine, instead of running `dist:win` again. His Connections and his saved templates stay on his install. Drew’s stay on Drew’s.
+Wes, on his PC: open `https://go7studio.com/products/go7-flicks`. He can send that link to a friend. He does not clone the repo or run `dist:win`. When the setup file is posted, he downloads `Go7Flicks-Setup-<version>.exe` from that page. Windows says unknown publisher, so he takes the file only from that page, then chooses More info, then Run anyway. The page and the file are not live yet. Until the file is posted, an installer from a Windows build, copied onto his machine, installs the same app. His Connections and his saved templates stay on his install. Drew’s stay on Drew’s.
 
 One channel folder can be copied from one PC to the other. The other boy uses Open folder. The flicks come with the folder. Connections and templates do not.
 

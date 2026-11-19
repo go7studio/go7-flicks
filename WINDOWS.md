@@ -1,6 +1,10 @@
 # Drew and Wes on Windows
 
-This Mac has not built the Windows installer. Wine is not installed here, so no `Go7Flicks-Setup-0.1.0.exe` was produced from this checkout. Build it on a Windows PC. The product path is in `PRODUCT-BIBLE.md` section 9.
+The link for another PC, including a friend who is not in the family, is https://go7studio.com/products/go7-flicks. Anyone can open it. No Go7 account and no GitHub login. That page is the listing. The Windows setup file is not posted there yet, so the button stays on the install steps.
+
+Another PC installs Go7 Flicks by running `Go7Flicks-Setup-<version>.exe`. Until the public file exists, the exe comes from a Windows build. `npm run dist:win` is the command that builds it. When `go7studio/go7-flicks` is public, the page button should point at `https://github.com/go7studio/go7-flicks/releases/latest`. The product path is in `PRODUCT-BIBLE.md` section 9.
+
+This checkout has not published that installer. `release\` is not in git. The script writes `release\Go7Flicks-Setup-0.1.0.exe` for version 0.1.0.
 
 ## Already in the repo
 
@@ -11,6 +15,7 @@ This Mac has not built the Windows installer. Wine is not installed here, so no 
 - Installer the script writes: `release\Go7Flicks-Setup-0.1.0.exe`.
 - The icon is already in the repo. Windows uses `build/icon.ico`, and `package.json` sets `build.win.icon` to that file. `build/icon.svg`, `build/icon.png`, and `build/icon.icns` are there for the Mac package. Do not regenerate them.
 - NSIS is per user, not one-click, and it can change the install folder. It adds a desktop shortcut and a Start menu shortcut named Go7Flicks. Uninstall leaves app data in place.
+- GitHub Actions builds the same installer on a manual run, and attaches it to a release when a `v*` tag is pushed. Other pushes do not publish it. The workflow is `.github/workflows/installer.yml`. The setup file stays unsigned.
 
 ## Styled export hardware
 
@@ -48,7 +53,9 @@ Proper git folder on DadOffice is `D:\GitHub\go7-flicks` (same pattern as `D:\Gi
 
 ## Wes
 
-Same install and same path, on his PC. He can copy `Go7Flicks-Setup-0.1.0.exe` from Drew instead of running `dist:win` himself. His Connections and saved templates stay on his install.
+Wes does not clone the repo or run `dist:win`. He opens https://go7studio.com/products/go7-flicks and can send that same link to a friend. When the Windows setup is posted, he downloads `Go7Flicks-Setup-<version>.exe` from that page and runs it. Windows will say unknown publisher. He takes the file only from that page, then chooses More info, then Run anyway.
+
+That page and that file are not live yet. Until the file is posted, he can run a copy of the exe from a Windows build. After it installs, he follows Drew’s steps from Library onward. His Connections and saved templates stay on his install.
 
 ## One channel, two PCs
 

@@ -1,0 +1,65 @@
+name: Installer
+
+# A push of ordinary commits publishes nothing. Run this by hand to build the
+# Windows setup. Pushing a v* tag attaches that setup to a GitHub release.
+# The exe name follows package.json, so the tag and the file name match only
+# when the version was bumped first.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the Windows installer
+        env:
+          # false stops electron-builder from picking up a certificate on the
+          # runner. The setup stays unsigned.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run dist:win
+
+      - name: Keep the installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Go7Flicks-Setup
+          path: release/Go7Flicks-Setup-*.exe
+          if-no-files-found: error
+
+  publish:
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: Go7Flicks-Setup
+          path: installer
+
+      - name: Attach the installer to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" installer/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Go7 Flicks ${version}" \
+            --notes "Windows installer attached. The file is unsigned, so Windows says unknown publisher. Take it only from this release. Run it, then Library, New channel, and pick a folder."
