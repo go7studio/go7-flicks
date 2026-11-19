@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { connectionNote } from "../shared/connection-note";
 import { defaultsFor, subscriptionRefusal, type ChatApi, type ConnectionAuth, type ConnectionDraft, type ConnectionKind, type ConnectionPublic } from "../shared/model";
 import { StartShell } from "./StartShell";
@@ -71,6 +71,9 @@ export function ConnectionsScreen({
   const [form, setForm] = useState<FormDraft | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [hearError, setHearError] = useState<Record<string, string>>({});
+  const player = useRef<HTMLAudioElement | null>(null);
+  const previewUrl = useRef<string | null>(null);
 
   async function reload() {
     setRows(await window.flicks!.connections());
@@ -194,11 +197,38 @@ export function ConnectionsScreen({
   async function test(slot: Slot) {
     if (!slot.row) return;
     setBusy(slot.key);
-    setMessage("");
     try {
       const result = await window.flicks!.testConnection(slot.row.id);
-      setMessage(result.ok ? "Connected." : result.message || "Test failed. Check the key and try again.");
+      setMessage(result.message || (result.ok ? "Connected." : "Test failed. Check the key and try again."));
       await reload();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function hear(slot: Slot) {
+    if (!slot.row) return;
+    setBusy(slot.key);
+    setHearError((current) => ({ ...current, [slot.key]: "" }));
+    try {
+      const result = await window.flicks!.hearVoice(slot.row.id);
+      if (!result.ok || !result.audioBase64) {
+        setHearError((current) => ({ ...current, [slot.key]: result.message || "Could not play that voice." }));
+        return;
+      }
+      const binary = atob(result.audioBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+      previewUrl.current = url;
+      const audio = player.current ?? new Audio();
+      player.current = audio;
+      audio.src = url;
+      await audio.play();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Could not play that voice.";
+      setHearError((current) => ({ ...current, [slot.key]: detail }));
     } finally {
       setBusy(null);
     }
@@ -236,11 +266,17 @@ export function ConnectionsScreen({
         ) : null}
         <h1>Connections</h1>
         <p className="muted tiny">Keys stay on this computer. They never show in the window after you save.</p>
-        {message ? <p className="banner start-note">{message}</p> : null}
+        {message ? (
+          <p className="banner start-note" aria-live="polite">
+            {message}
+          </p>
+        ) : null}
+        <audio ref={player} />
         <div className="conn-list">
           {slots.map((slot) => {
             const connected = slot.row?.connected === true;
-            const status = connected ? "Connected" : connectionNote(slot.kind, slot.row?.statusNote ?? "") || "Not tested";
+            const note = connectionNote(slot.kind, slot.row?.statusNote ?? "");
+            const status = connected ? "Connected" : note || "Not tested";
             const editingThis = editing === slot.key;
             const loginChoices: ConnectionAuth[] =
               form?.kind === "cursor"
@@ -257,10 +293,17 @@ export function ConnectionsScreen({
                     {slot.row ? ` · ${slot.row.model}` : ""}
                   </span>
                 </div>
-                <p className={connected ? "conn-state on" : "conn-state"}>
-                  <i className={connected ? "conn-dot on" : "conn-dot"} aria-hidden="true" />
-                  {status}
-                </p>
+                <div className="conn-status">
+                  <p className={connected ? "conn-state on" : "conn-state"}>
+                    <i className={connected ? "conn-dot on" : "conn-dot"} aria-hidden="true" />
+                    {status}
+                  </p>
+                  {connected && note ? (
+                    <p className="conn-note" aria-live="polite">
+                      {note}
+                    </p>
+                  ) : null}
+                </div>
                 <div className="conn-action">
                   <button className="btn" type="button" disabled={busy === slot.key} onClick={() => openEdit(slot)}>
                     Edit
@@ -389,23 +432,34 @@ export function ConnectionsScreen({
                     </div>
                   </form>
                 ) : null}
-                {slot.row && slot.row.voices.length ? (
-                  <label className="conn-voice">
-                    <span className="conn-detail">Voice</span>
-                    <select
-                      value={slot.row.voiceId}
-                      onChange={(event) => {
-                        const voiceId = event.target.value;
-                        void window.flicks!.setVoice(slot.row!.id, voiceId).then(() => reload());
-                      }}
-                    >
-                      {slot.row.voices.map((voice) => (
-                        <option key={voice.id} value={voice.id}>
-                          {voice.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                {slot.row && (slot.row.voices.length || slot.kind === "elevenlabs" || slot.kind === "minimax") ? (
+                  <div className="conn-voice">
+                    {slot.row.voices.length ? (
+                      <label>
+                        <span className="conn-detail">Voice</span>
+                        <select
+                          value={slot.row.voiceId}
+                          aria-label={`${LABELS[slot.kind]} voice`}
+                          onChange={(event) => {
+                            const voiceId = event.target.value;
+                            void window.flicks!.setVoice(slot.row!.id, voiceId).then(() => reload());
+                          }}
+                        >
+                          {slot.row.voices.map((voice) => (
+                            <option key={voice.id} value={voice.id}>
+                              {voice.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    {slot.kind === "elevenlabs" || slot.kind === "minimax" ? (
+                      <button className="btn" type="button" disabled={busy === slot.key} onClick={() => void hear(slot)}>
+                        Hear voice
+                      </button>
+                    ) : null}
+                    {hearError[slot.key] ? <p className="conn-note">{hearError[slot.key]}</p> : null}
+                  </div>
                 ) : null}
               </article>
             );

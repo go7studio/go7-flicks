@@ -55,6 +55,7 @@ export type FlicksApi = {
   deleteConnection: (id: string) => Promise<CallResult>;
   testConnection: (id: string) => Promise<CallResult & { connection?: ConnectionPublic }>;
   setVoice: (id: string, voiceId: string) => Promise<CallResult & { connection?: ConnectionPublic }>;
+  hearVoice: (id: string) => Promise<CallResult & { audioBase64?: string }>;
   writeLine: (connectionId: string, prompt: string) => Promise<CallResult>;
   askAssistant: (connectionId: string, prompt: string) => Promise<CallResult>;
   makeVoice: (connectionId: string, dir: string, flickId: string, text: string, startSec?: number) => Promise<CallResult>;

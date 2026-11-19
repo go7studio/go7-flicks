@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld("flicks", {
   deleteConnection: (id: string) => invoke("connection:delete", id),
   testConnection: (id: string) => invoke("connection:test", id),
   setVoice: (id: string, voiceId: string) => invoke("connection:voice", id, voiceId),
+  hearVoice: (id: string) => invoke("connection:hear", id),
   writeLine: (connectionId: string, prompt: string) => invoke("ai:write", connectionId, prompt),
   askAssistant: (connectionId: string, prompt: string) => invoke("ai:ask", connectionId, prompt),
   makeVoice: (connectionId: string, dir: string, flickId: string, text: string, startSec?: number) =>

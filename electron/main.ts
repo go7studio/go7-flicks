@@ -42,7 +42,7 @@ import { stageSource, stagedPathIfReady } from "./stage";
 import { userDir } from "./vault";
 import { failureLine, trimToAction } from "./action";
 import { probeGpu, probeMedia } from "./probe";
-import { askAssistant, synthesize, testProvider, writeLine } from "./providers";
+import { askAssistant, previewSpeech, synthesize, testProvider, writeLine } from "./providers";
 import { seedMachineAccounts } from "./seed-accounts";
 import { renderFlick } from "./styled";
 import type { FlickProps } from "../src/remotion/FlickComposition";
@@ -566,6 +566,18 @@ function registerIpc(): void {
   ipcMain.handle("connection:voice", async (_event, id: string, voiceId: string) => {
     try {
       return { ok: true as const, message: "Voice updated.", connection: markConnection(id, { voiceId }) };
+    } catch (error) {
+      return fail(error);
+    }
+  });
+  ipcMain.handle("connection:hear", async (_event, id: string) => {
+    try {
+      const connection = getConnection(id);
+      if (!connection.connected) throw new Error("Test this connection first.");
+      const key = connectionKey(id);
+      if (!key) throw new Error("Add an API key first.");
+      const audio = await previewSpeech(connection, key);
+      return { ok: true as const, message: "Playing.", audioBase64: audio.toString("base64") };
     } catch (error) {
       return fail(error);
     }

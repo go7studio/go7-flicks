@@ -113,6 +113,33 @@ export async function synthesize(connection: ConnectionPublic, key: string, text
   throw new Error("Pick an ElevenLabs or MiniMax connection for voice.");
 }
 
+/** One short spoken line for Hear voice. It is not a flick voice file. */
+export const PREVIEW_LINE = "Hello.";
+
+/** Temporary mp3 for a voice sample. Never a flick's voice.mp3. */
+export function previewFile(id: string): string {
+  const safe = id.replace(/[^a-zA-Z0-9-]/g, "") || "voice";
+  const dest = path.join(os.tmpdir(), `go7-hear-${safe}.mp3`);
+  const relative = path.relative(path.resolve(os.tmpdir()), path.resolve(dest));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || path.basename(dest) === "voice.mp3") {
+    throw new Error("A voice preview stays in a temporary file.");
+  }
+  return dest;
+}
+
+export async function previewSpeech(connection: ConnectionPublic, key: string): Promise<Buffer> {
+  if (connection.kind !== "elevenlabs" && connection.kind !== "minimax") {
+    throw new Error("Pick an ElevenLabs or MiniMax connection for voice.");
+  }
+  const dest = previewFile(connection.id);
+  try {
+    await synthesize(connection, key, PREVIEW_LINE, dest);
+    return fs.readFileSync(dest);
+  } finally {
+    fs.rmSync(dest, { force: true });
+  }
+}
+
 const CLAUDE_HELPER = "/Users/venomspike/.local/bin/anthropic-call";
 
 async function testCli(connection: ConnectionPublic): Promise<ProviderTest> {
@@ -496,7 +523,21 @@ function joinUrl(base: string, suffix: string): string {
 
 async function errorText(response: Response): Promise<string> {
   const text = await response.text();
-  return text.slice(0, 400) || `Request failed (${response.status}).`;
+  const clean = text.replace(/\s+/g, " ").trim();
+  try {
+    const body = JSON.parse(text) as {
+      detail?: { message?: string } | string;
+      error?: { message?: string };
+      message?: string;
+      base_resp?: { status_msg?: string };
+    };
+    const detail = typeof body.detail === "string" ? body.detail : body.detail?.message;
+    const message = detail || body.error?.message || body.base_resp?.status_msg || body.message;
+    if (message?.trim()) return message.trim().slice(0, 240);
+  } catch {
+    // The host sent plain text.
+  }
+  return clean.slice(0, 240) || `Request failed (${response.status}).`;
 }
 
 function keepReply(text: string): string {
