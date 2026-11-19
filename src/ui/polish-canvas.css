@@ -80,6 +80,41 @@
   color: #1c1915;
 }
 
+.app.canvas-screen .upload-paste {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.app.canvas-screen .upload-paste p {
+  margin: 0;
+}
+
+.app.canvas-screen .upload-paste-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.app.canvas-screen .upload-paste-label {
+  flex: none;
+  min-width: 6.5rem;
+  padding-top: 2px;
+  font-weight: 650;
+}
+
+.app.canvas-screen .upload-paste-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  user-select: text;
+}
+
+.app.canvas-screen .upload-paste-row .btn {
+  flex: none;
+}
+
 /* Shelf rail: paper sticky, card rhythm */
 .app.canvas-screen .shelf-rail {
   background: #f7f3ea;

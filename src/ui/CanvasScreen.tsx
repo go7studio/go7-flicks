@@ -33,6 +33,7 @@ import {
 import { clipDuration, storedVoiceStart, timelineEnd, uid, type CallResult, type Clip, type ConnectionPublic, type Flick, type ShelfEntry, type Template } from "../shared/model";
 import type { ResolvedMedia } from "../shared/api";
 import type { AssistClip } from "../shared/assist";
+import { UPLOAD_FILE_NOTE, uploadHandout, type UploadHandout } from "../shared/upload-paste";
 import { whenPhrase } from "../shared/when";
 import { StyleFields } from "./StyleFields";
 import { WhichClip } from "./WhichClip";
@@ -101,6 +102,31 @@ function showingNeedsFrame(flick: Flick): boolean {
   const showing = flick.regions.filter((region) => !region.hidden && region.height > 0.01);
   if (showing.some((region) => !hasTrackMedia(flick.clips, region.trackId))) return true;
   return showing.length === 0 && flick.clips.some((clip) => Boolean(clip.mediaId));
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.top = "0";
+      area.style.left = "0";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      const wrote = document.execCommand("copy");
+      area.remove();
+      return wrote;
+    } catch {
+      return false;
+    }
+  }
 }
 
 function clipFromAsset(asset: { id: string; name: string; durationSec: number }, trackId: string): Clip {
@@ -189,6 +215,8 @@ export function CanvasScreen({
 }) {
   const [flick, setFlick] = useState<Flick | null>(null);
   const [media, setMedia] = useState<ResolvedMedia[]>([]);
+  const mediaRef = useRef<ResolvedMedia[]>([]);
+  mediaRef.current = media;
   const [accent, setAccent] = useState("#e2b340");
   const [channelName, setChannelName] = useState("");
   const [voiceUrl, setVoiceUrl] = useState<string | null>(null);
@@ -206,6 +234,8 @@ export function CanvasScreen({
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
+  const [upload, setUpload] = useState<UploadHandout | null>(null);
+  const [copied, setCopied] = useState<"title" | "description" | "">("");
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [replaceId, setReplaceId] = useState("");
@@ -230,6 +260,8 @@ export function CanvasScreen({
   }
 
   useEffect(() => {
+    setUpload(null);
+    setCopied("");
     void window.flicks!.readFlick(dir, flickId).then((result) => {
       if (!result.ok || !result.flick || !result.channel) {
         setMessage(result.message ?? "Could not open the flick.");
@@ -799,12 +831,27 @@ export function CanvasScreen({
         kind === "cut"
           ? await window.flicks!.exportCut(dir, latest.id, output)
           : await window.flicks!.exportStyled(dir, latest.id, output);
-      setMessage(result.ok ? `Saved ${output}` : result.message ?? "Export failed.");
+      if (result.ok) {
+        setMessage(`Saved ${output}`);
+        setCopied("");
+        setUpload(uploadHandout(latest, mediaRef.current));
+      } else {
+        setMessage(result.message ?? "Export failed.");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Export failed.");
     } finally {
       setBusy("");
     }
+  }
+
+  async function copyUploadText(text: string, which: "title" | "description") {
+    const wrote = await writeClipboard(text);
+    if (wrote) {
+      setCopied(which);
+      return;
+    }
+    setMessage("Select the text and copy it.");
   }
 
   function onSeam(regionId: string, event: React.PointerEvent) {
@@ -902,6 +949,27 @@ export function CanvasScreen({
         </button>
       </header>
       {busy ? <p className="banner">{busy}</p> : message ? <p className="banner">{message}</p> : null}
+      {upload ? (
+        <section className="banner upload-paste" aria-label="YouTube title and description">
+          <p>{UPLOAD_FILE_NOTE}</p>
+          <div className="upload-paste-row">
+            <span className="upload-paste-label">Title</span>
+            <p className="upload-paste-text">{upload.title}</p>
+            <button className="btn" type="button" aria-label="Copy title" onClick={() => void copyUploadText(upload.title, "title")}>
+              Copy
+            </button>
+            {copied === "title" ? <span className="tiny muted">Copied</span> : null}
+          </div>
+          <div className="upload-paste-row">
+            <span className="upload-paste-label">Description</span>
+            <p className="upload-paste-text">{upload.description}</p>
+            <button className="btn" type="button" aria-label="Copy description" onClick={() => void copyUploadText(upload.description, "description")}>
+              Copy
+            </button>
+            {copied === "description" ? <span className="tiny muted">Copied</span> : null}
+          </div>
+        </section>
+      ) : null}
       <div className="workspace">
         <aside className="rail shelf-rail">
           <div className="shelf-sticky">
