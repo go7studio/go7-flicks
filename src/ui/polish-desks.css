@@ -106,6 +106,90 @@
   padding: 16px;
 }
 
+/* The clips list is its own pane. The gold handle is its top edge:
+   drag up and the list grows toward the top of the window. */
+.studio .rank-rail.clip-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.studio .clip-rail .rank-rest,
+.studio .clip-rail .rank-clips {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+}
+
+.studio .clip-rail .rank-rest {
+  flex: 0 1 220px;
+  max-height: 34%;
+  min-height: 96px;
+  padding: 16px 16px 8px;
+}
+
+.studio .clip-rail .rank-clips {
+  flex: 1 1 auto;
+  min-height: 176px;
+  padding: 8px 16px;
+}
+
+.studio .clip-rail[data-clips-sized] .rank-rest {
+  flex: 1 1 auto;
+  max-height: none;
+}
+
+.studio .clip-rail[data-clips-sized] .rank-clips {
+  flex: none;
+  height: var(--rank-clips-height);
+  max-height: calc(100% - 12px - 96px);
+}
+
+.studio .rank-clips-split {
+  position: relative;
+  flex: none;
+  height: 12px;
+  touch-action: none;
+  cursor: row-resize;
+}
+
+.studio .rank-clips-split::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 64px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e2b340;
+  transform: translateX(-50%);
+}
+
+.studio .rank-clips-split::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 5px;
+  width: 18px;
+  height: 2px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, #1c1915 1.15px, transparent 1.3px) 0 0 / 6px 2px repeat-x;
+}
+
+.studio .rank-clips-split:hover::before,
+.studio .rank-clips-split:focus-visible::before {
+  background: #d4a433;
+}
+
+.studio .rank-clips-split:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: -2px;
+}
+
 .studio .rank-inspector {
   gap: 14px;
   padding: 16px 16px 28px;

@@ -80,3 +80,13 @@ test("the ranking desk says what find clips and which clip do", () => {
   assert.equal(ranking.includes("Empty slot"), false);
   assert.equal((ranking.match(/<video/g) ?? []).length, 2);
 });
+
+test("the ranking clips handle grows when it is dragged up", () => {
+  const ranking = read("../src/ui/RankingStudio.tsx");
+  const css = read("../src/ui/polish-desks.css");
+  assert.match(ranking, /go7-ranking-clips/);
+  assert.match(ranking, /start - \(ev\.clientY - originY\)/);
+  assert.match(ranking, /Clips list height/);
+  assert.match(css, /\.clip-rail \.rank-clips/);
+  assert.match(css, /min-height: 176px/);
+});

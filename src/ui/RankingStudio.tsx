@@ -111,6 +111,42 @@ function deskStorageKey(channelDir?: string): string {
   return `go7-flicks-desk:${channelDir || "none"}:ranking`;
 }
 
+/** Window session, same idea as the canvas timeline height. */
+const RANK_CLIPS_KEY = "go7-ranking-clips";
+/** Slot controls plus one full clip row. The handle sits outside this. */
+const RANK_CLIPS_MIN = 176;
+const RANK_CLIPS_HANDLE = 12;
+/** Play order keeps a strip when the clips list is dragged open. */
+const RANK_CLIPS_REST_MIN = 96;
+
+function clampRankClips(height: number, railHeight: number): number {
+  const max = Math.max(RANK_CLIPS_MIN, Math.round(railHeight - RANK_CLIPS_HANDLE - RANK_CLIPS_REST_MIN));
+  const value = Number.isFinite(height) ? height : RANK_CLIPS_MIN;
+  return Math.round(Math.min(max, Math.max(RANK_CLIPS_MIN, value)));
+}
+
+function readRankClips(): number | null {
+  try {
+    if (typeof sessionStorage === "undefined") return null;
+    const raw = sessionStorage.getItem(RANK_CLIPS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { height?: unknown };
+    const height = Number(parsed.height);
+    if (!Number.isFinite(height)) return null;
+    return clampRankClips(height, 4000);
+  } catch {
+    return null;
+  }
+}
+
+function rememberRankClips(height: number) {
+  try {
+    sessionStorage.setItem(RANK_CLIPS_KEY, JSON.stringify({ height }));
+  } catch {
+    /* This window may block storage. The drag still works until reload. */
+  }
+}
+
 type RankingDraft = {
   headline?: string;
   accentWords?: string;
@@ -218,6 +254,7 @@ export function RankingStudio({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [recipes, setRecipes] = useState<Template[]>([]);
+  const [clipsHeight, setClipsHeight] = useState<number | null>(readRankClips);
   const [playing, setPlaying] = useState(false);
   const [playKind, setPlayKind] = useState<"ranking" | "clip" | null>(null);
   const [nowSec, setNowSec] = useState(0);
@@ -245,10 +282,88 @@ export function RankingStudio({
   const frameWatch = useRef(0);
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
+  const railRef = useRef<HTMLElement>(null);
+  const clipsPaneRef = useRef<HTMLDivElement>(null);
+  const clipsHeightRef = useRef(clipsHeight);
+  clipsHeightRef.current = clipsHeight;
   const keepDraft = useRef(true);
   const draftKey = deskStorageKey(channelDir);
   const [boundKey, setBoundKey] = useState<string | null>(null);
   const folderLabel = announced || (dir ? folderName(dir) : "");
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const fit = () => {
+      const stored = clipsHeightRef.current;
+      if (stored == null) return;
+      const next = clampRankClips(stored, rail.clientHeight);
+      if (next === clipsHeightRef.current) return;
+      clipsHeightRef.current = next;
+      rememberRankClips(next);
+      setClipsHeight(next);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, []);
+
+  function applyClipsHeight(next: number) {
+    clipsHeightRef.current = next;
+    rememberRankClips(next);
+    setClipsHeight(next);
+  }
+
+  function beginClipsDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const rail = railRef.current;
+    const clips = clipsPaneRef.current;
+    if (!rail || !clips) return;
+    const originY = event.clientY;
+    const start = clips.getBoundingClientRect().height;
+    const handle = event.currentTarget;
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      /* The listeners below still follow the pointer when capture is unavailable. */
+    }
+    const previousCursor = document.body.style.cursor;
+    const previousSelect = document.body.style.userSelect;
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    const move = (ev: PointerEvent) => {
+      // The handle is the top of the clips list. Pointer up grows it toward the top of the window.
+      const next = clampRankClips(start - (ev.clientY - originY), rail.clientHeight);
+      if (next === clipsHeightRef.current) return;
+      applyClipsHeight(next);
+    };
+    const up = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousSelect;
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+
+  function nudgeClips(event: React.KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 48 : 16;
+    let delta = 0;
+    if (event.key === "ArrowUp") delta = step;
+    else if (event.key === "ArrowDown") delta = -step;
+    if (!delta) return;
+    event.preventDefault();
+    const rail = railRef.current;
+    const clips = clipsPaneRef.current;
+    if (!rail || !clips) return;
+    const start = clipsHeightRef.current ?? clips.getBoundingClientRect().height;
+    applyClipsHeight(clampRankClips(start + delta, rail.clientHeight));
+  }
 
   useEffect(() => {
     if (channelDir) {
@@ -1233,91 +1348,112 @@ export function RankingStudio({
       </header>
       {message ? <p className="banner">{message}</p> : null}
       <div className="studio-body">
-        <aside className="rail stack rank-rail">
-          <p className="rail-label">Ask for more slots</p>
-          <div className="count-row" role="group" aria-label="Ask for more slots">
-            {[5, 6, 7].map((count) => (
-              <button
-                key={count}
-                className={slots.length === count ? "count-btn on" : "count-btn"}
-                aria-pressed={slots.length === count}
-                onClick={() => setCount(count)}
-              >
-                {count} slots
-              </button>
-            ))}
-          </div>
-          <div className="slot-list">
-            {slots.map((item, index) => (
-              <button
-                key={item.id}
-                className={index === selected ? (item.mediaId ? "slot on" : "slot is-empty on") : item.mediaId ? "slot" : "slot is-empty"}
-                onClick={() => {
-                  if (index !== selected) {
-                    stopSequence();
-                    wantPlay.current = false;
-                    span.current = "file";
-                    nodeAt(liveDeck.current)?.pause();
-                  }
-                  setSelected(index);
-                }}
-              >
-                <b>#{item.rank}</b>
-                <span className="slot-copy">
-                  <span className="slot-name">
-                    {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Add a clip"}
-                  </span>
-                  {item.mediaId ? (
-                    <span className="slot-time">{slotTimeLine(item.outSec - item.inSec, item.duration)}</span>
-                  ) : null}
-                </span>
-                {item.mediaId ? <em>Play {playAt.get(item.id)}</em> : null}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="slot-add" onClick={addSlot}>
-            Add a clip
-          </button>
-          <button type="button" className="slot-add" onClick={startFresh}>
-            New ranking
-          </button>
-          <p className="desk-note">Clears this desk. Rankings already saved stay in the channel.</p>
-          <p className="rail-label">Play order</p>
-          <div className="order-stack">
-            <button className={playback === "countdown" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("countdown")}>
-              <ClockIcon />
-              Countdown
-            </button>
-            {playback === "countdown" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-            <button className={playback === "listed" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("listed")}>
-              <ListIcon />
-              Listed
-            </button>
-            {playback === "listed" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-            <button className={playback === "skip" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("skip")}>
-              <SkipIcon />
-              Skip around
-            </button>
-            {playback === "skip" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-            <button className={playback === "shuffle" ? "order-btn on" : "order-btn"} onClick={shuffle}>
-              <ShuffleIcon />
-              Shuffle
-            </button>
-            {playback === "shuffle" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-          </div>
-          <button className="btn desk-save" onClick={() => void saveRecipe()}>
-            Save template
-          </button>
-          <p className="desk-note">Keeps this order and these words, and leaves the clips off the template.</p>
-          {recipes.length ? (
+        <aside
+          className="rail stack rank-rail clip-rail"
+          ref={railRef}
+          data-clips-sized={clipsHeight != null ? "" : undefined}
+          style={clipsHeight != null ? { ["--rank-clips-height" as string]: `${clipsHeight}px` } : undefined}
+        >
+          <div className="rank-rest">
+            <p className="rail-label">Play order</p>
             <div className="order-stack">
-              {recipes.map((recipe) => (
-                <button key={recipe.id} className="choice" onClick={() => loadRecipe(recipe)}>
-                  {recipe.name}
+              <button className={playback === "countdown" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("countdown")}>
+                <ClockIcon />
+                Countdown
+              </button>
+              {playback === "countdown" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
+              <button className={playback === "listed" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("listed")}>
+                <ListIcon />
+                Listed
+              </button>
+              {playback === "listed" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
+              <button className={playback === "skip" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("skip")}>
+                <SkipIcon />
+                Skip around
+              </button>
+              {playback === "skip" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
+              <button className={playback === "shuffle" ? "order-btn on" : "order-btn"} onClick={shuffle}>
+                <ShuffleIcon />
+                Shuffle
+              </button>
+              {playback === "shuffle" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
+            </div>
+            <button className="btn desk-save" onClick={() => void saveRecipe()}>
+              Save template
+            </button>
+            <p className="desk-note">Keeps this order and these words, and leaves the clips off the template.</p>
+            {recipes.length ? (
+              <div className="order-stack">
+                {recipes.map((recipe) => (
+                  <button key={recipe.id} className="choice" onClick={() => loadRecipe(recipe)}>
+                    {recipe.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div
+            className="rank-clips-split"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Clips list height"
+            aria-valuemin={RANK_CLIPS_MIN}
+            aria-valuenow={clipsHeight ?? undefined}
+            tabIndex={0}
+            title="Drag up to expand the clips"
+            onPointerDown={beginClipsDrag}
+            onKeyDown={nudgeClips}
+          />
+          <div className="rank-clips" ref={clipsPaneRef}>
+            <p className="rail-label">Ask for more slots</p>
+            <div className="count-row" role="group" aria-label="Ask for more slots">
+              {[5, 6, 7].map((count) => (
+                <button
+                  key={count}
+                  className={slots.length === count ? "count-btn on" : "count-btn"}
+                  aria-pressed={slots.length === count}
+                  onClick={() => setCount(count)}
+                >
+                  {count} slots
                 </button>
               ))}
             </div>
-          ) : null}
+            <div className="slot-list">
+              {slots.map((item, index) => (
+                <button
+                  key={item.id}
+                  className={index === selected ? (item.mediaId ? "slot on" : "slot is-empty on") : item.mediaId ? "slot" : "slot is-empty"}
+                  onClick={() => {
+                    if (index !== selected) {
+                      stopSequence();
+                      wantPlay.current = false;
+                      span.current = "file";
+                      nodeAt(liveDeck.current)?.pause();
+                    }
+                    setSelected(index);
+                  }}
+                >
+                  <b>#{item.rank}</b>
+                  <span className="slot-copy">
+                    <span className="slot-name">
+                      {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Add a clip"}
+                    </span>
+                    {item.mediaId ? (
+                      <span className="slot-time">{slotTimeLine(item.outSec - item.inSec, item.duration)}</span>
+                    ) : null}
+                  </span>
+                  {item.mediaId ? <em>Play {playAt.get(item.id)}</em> : null}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="slot-add" onClick={addSlot}>
+              Add a clip
+            </button>
+            <button type="button" className="slot-add" onClick={startFresh}>
+              New ranking
+            </button>
+            <p className="desk-note">Clears this desk. Rankings already saved stay in the channel.</p>
+          </div>
         </aside>
         <div className="stage-wrap">
           <div className="phone-stage">
