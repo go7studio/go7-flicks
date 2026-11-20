@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld("flicks", {
   duplicateFlick: (dir: string, flickId: string) => invoke("flick:duplicate", dir, flickId),
   deleteFlick: (dir: string, flickId: string) => invoke("flick:delete", dir, flickId),
   importMedia: (dir: string, mode: "copy" | "link") => invoke("media:import", dir, mode),
-  downloadMedia: (dir: string, url: string) => invoke("media:download", dir, url),
+  downloadMedia: (dir: string, url: string, maxSec?: number) => invoke("media:download", dir, url, maxSec),
   findClips: (dir: string, subject: string, count: number) => invoke("media:find", dir, subject, count),
   importAudio: (dir: string) => invoke("media:importAudio", dir),
   stageMedia: (dir: string, assetId: string) => invoke("media:stage", dir, assetId),

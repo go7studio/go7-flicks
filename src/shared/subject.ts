@@ -4,7 +4,8 @@ import { pictureFocus } from "./action";
 export const SUBJECT_CLIP_COUNT = 3;
 
 export const SUBJECT_CANDIDATE_COUNT = 12;
-const MAX_SEC = 90;
+/** Find clips and a pasted ranking link both stop here. A longer video is not downloaded. */
+export const SHORT_CLIP_SEC = 90;
 const SKIP_WORDS = new Set(["the", "and", "for", "with", "from", "that", "this", "your", "into", "best", "most", "top", "ever", "very"]);
 const OFF_SUBJECT = [
   /\batlas\b/i,
@@ -224,7 +225,7 @@ function namesTheSubject(title: string, subject: string): boolean {
 /** Short clips of the subject. A fall or a jump stays. A robot, a news story, or a long compilation does not. */
 export function pickSubjectClips(hits: SubjectHit[], count = SUBJECT_CANDIDATE_COUNT, subject = ""): SubjectHit[] {
   const short = hits.filter((hit) => {
-    if (hit.durationSec === null || hit.durationSec < 2 || hit.durationSec > MAX_SEC) return false;
+    if (hit.durationSec === null || hit.durationSec < 2 || hit.durationSec > SHORT_CLIP_SEC) return false;
     if (subject && skipSubjectTitle(hit.title, subject)) return false;
     if (subject && !namesTheSubject(hit.title, subject)) return false;
     return true;

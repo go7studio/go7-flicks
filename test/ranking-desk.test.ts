@@ -75,7 +75,12 @@ test("the ranking desk says what find clips and which clip do", () => {
   assert.match(ranking, /Type a topic\. This finds up to three short clips\./);
   assert.match(which, /This looks at the clips already here and asks the account you connected\./);
   assert.match(ranking, /Saves this order and these words\. The video files stay off it\./);
-  assert.match(ranking, /Choose a clip/);
+  assert.match(ranking, /Paste a link or upload a file\./);
+  assert.match(ranking, /Add link/);
+  assert.match(ranking, /Upload a file/);
+  assert.match(ranking, /downloadMedia\(folder, url, SHORT_CLIP_SEC\)/);
+  assert.equal(ranking.includes("Choose a clip"), false);
+  assert.equal((ranking.match(/importMedia/g) ?? []).length, 1);
   assert.match(ranking, /Add another slot/);
   assert.match(ranking, /Starts over\. Rankings you already saved stay in this channel\./);
   assert.equal(ranking.includes("Add a clip"), false);

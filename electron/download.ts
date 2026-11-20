@@ -70,6 +70,8 @@ export function ytdlpDownloadArgs(input: {
   outputTemplate: string;
   link: string;
   preferred: boolean;
+  /** When set, yt-dlp skips the video before downloading anything longer. */
+  maxSec?: number;
 }): string[] {
   const args = [
     "--no-playlist",
@@ -81,8 +83,14 @@ export function ytdlpDownloadArgs(input: {
     input.outputTemplate,
   ];
   if (input.preferred) args.push("--merge-output-format", "mp4", "-S", "vcodec:h264,res:1080,acodec:m4a");
+  if (input.maxSec && input.maxSec > 0) args.push("--match-filter", `duration <= ${input.maxSec}`);
   args.push(input.link);
   return args;
+}
+
+/** A positive cap rejects a file that runs longer than Find clips allows. */
+export function clipTooLong(durationSec: number, maxSec?: number): boolean {
+  return typeof maxSec === "number" && maxSec > 0 && durationSec > maxSec;
 }
 
 export function searchArgs(target: string): string[] {
@@ -99,14 +107,19 @@ export function searchArgs(target: string): string[] {
   ];
 }
 
-export async function downloadClip(url: string, ffmpegPath: string, binDir: string): Promise<{ file: string; cleanup: () => void }> {
+export async function downloadClip(
+  url: string,
+  ffmpegPath: string,
+  binDir: string,
+  maxSec?: number,
+): Promise<{ file: string; cleanup: () => void }> {
   const link = clipLink(url);
   const bin = await ytdlpPath(binDir);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "go7flicks-get-"));
   const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
   const outputTemplate = path.join(dir, "%(title).80s.%(ext)s");
   const run = (preferred: boolean) =>
-    exec(bin, ytdlpDownloadArgs({ ffmpegPath, outputTemplate, link, preferred }), {
+    exec(bin, ytdlpDownloadArgs({ ffmpegPath, outputTemplate, link, preferred, maxSec }), {
       timeout: 15 * 60 * 1000,
       maxBuffer: 20 * 1024 * 1024,
       windowsHide: true,
@@ -121,7 +134,9 @@ export async function downloadClip(url: string, ffmpegPath: string, binDir: stri
     }
   } catch (error) {
     cleanup();
-    throw new Error(toolMessage(error));
+    const line = toolMessage(error);
+    if (maxSec && maxSec > 0 && /does not pass filter|match filter/i.test(line)) throw new Error("That clip is too long.");
+    throw new Error(line);
   }
   const file = pickedFile(dir);
   if (!file) {

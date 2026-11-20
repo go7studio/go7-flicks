@@ -29,7 +29,8 @@ import type { ResolvedMedia } from "../shared/api";
 import { captionFromFile, headlineFromFlick, openDeskFlick, titleFromClip } from "../remotion/FlickComposition";
 import type { AssistClip } from "../shared/assist";
 import { fitRankingSlots, formatClock, phoneHeadline, playbackSentence, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../shared/desk";
-import { placeFoundClips, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
+import { clipLink } from "../shared/link";
+import { placeFoundClips, SHORT_CLIP_SEC, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
 import { whenPhrase } from "../shared/when";
 import "./polish-desks.css";
 import { StyleFields } from "./StyleFields";
@@ -99,6 +100,18 @@ function waitFor(video: HTMLVideoElement, event: keyof HTMLMediaElementEventMap)
     };
     video.addEventListener(event, done);
   });
+}
+
+function uploadNote(message: string | undefined): string {
+  const line = (message ?? "").replace(/\s+/g, " ").trim();
+  if (!line || line === "No file chosen." || line === "No clip chosen.") return "Upload canceled.";
+  return line.length > 80 ? "Could not add that file." : line;
+}
+
+function linkNote(message: string | undefined): string {
+  const line = (message ?? "").replace(/\s+/g, " ").trim();
+  if (!line || line === "No file chosen.") return "Could not get that clip.";
+  return line.length > 80 ? "Could not get that clip." : line;
 }
 
 function folderName(path: string): string {
@@ -247,6 +260,8 @@ export function RankingStudio({
   const [warmth, setWarmth] = useState(0);
   const [pasted, setPasted] = useState("");
   const [subject, setSubject] = useState("");
+  const [linkText, setLinkText] = useState("");
+  const [addNote, setAddNote] = useState("");
   const [playback, setPlayback] = useState<PlaybackMode>("countdown");
   const [orderIds, setOrderIds] = useState<string[]>([]);
   const [slots, setSlots] = useState<Slot[]>(() => makeSlots(5));
@@ -283,6 +298,8 @@ export function RankingStudio({
   const frameWatch = useRef(0);
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
+  const noteTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(noteTimer.current), []);
   const railRef = useRef<HTMLElement>(null);
   const clipsPaneRef = useRef<HTMLDivElement>(null);
   const clipsHeightRef = useRef(clipsHeight);
@@ -769,7 +786,7 @@ export function RankingStudio({
     const order = filledIds();
     const startId = rankingStartId(slots[selected]?.id, order);
     if (!startId) {
-      setMessage(slots.some((item) => item.mediaId) ? "That clip has no preview yet." : "Choose a clip to play.");
+      setMessage(slots.some((item) => item.mediaId) ? "That clip has no preview yet." : "This rank has no clip.");
       return;
     }
     const startAt = Math.max(0, order.indexOf(startId));
@@ -1127,75 +1144,122 @@ export function RankingStudio({
     setSlots((rows) => rows.map((item, row) => (row === index ? { ...item, ...next } : item)));
   }
 
-  async function getClip() {
-    const index = selected;
-    const current = slots[index];
-    if (!current?.note.trim()) {
-      setMessage("Paste a link.");
+  function selectRank(index: number) {
+    if (index !== selected) {
+      stopSequence();
+      wantPlay.current = false;
+      span.current = "file";
+      nodeAt(liveDeck.current)?.pause();
+    }
+    setSelected(index);
+  }
+
+  function flashNote(text: string) {
+    window.clearTimeout(noteTimer.current);
+    setAddNote(text);
+    noteTimer.current = window.setTimeout(() => setAddNote(""), 3400);
+  }
+
+  function clearAddNote() {
+    window.clearTimeout(noteTimer.current);
+    setAddNote("");
+  }
+
+  /** The selected rank when it is empty, otherwise the next empty rank. */
+  function rankForNewClip(): number {
+    const rows = slotsRef.current;
+    if (!rows.length) return -1;
+    const start = rows[selected] && !rows[selected].mediaId ? selected : selected + 1;
+    for (let step = 0; step < rows.length; step += 1) {
+      const index = (start + step) % rows.length;
+      if (!rows[index]?.mediaId) return index;
+    }
+    return -1;
+  }
+
+  function landClip(
+    index: number,
+    asset: { id: string; name: string; durationSec: number },
+    media: ResolvedMedia[] | undefined,
+    sourceUrl?: string,
+  ) {
+    const current = slotsRef.current[index];
+    const resolved = media?.find((item) => item.id === asset.id);
+    const duration = asset.durationSec || 3;
+    fillSlot(index, {
+      mediaId: asset.id,
+      mediaName: asset.name,
+      madeAt: resolved?.madeAt,
+      previewUrl: resolved?.previewUrl ?? null,
+      duration,
+      inSec: 0,
+      outSec: Math.min(4, Math.max(0.4, duration)),
+      title: captionFromFile(current?.title, asset.name),
+      focus: 0.5,
+      ...(sourceUrl ? { note: sourceUrl } : {}),
+    });
+  }
+
+  async function addLink() {
+    if (busy) return;
+    let url = "";
+    try {
+      url = clipLink(linkText);
+    } catch (error) {
+      flashNote(error instanceof Error ? error.message : "Paste a link.");
       return;
     }
+    const index = rankForNewClip();
+    if (index < 0) {
+      flashNote("Every rank already has a clip.");
+      return;
+    }
+    selectRank(index);
+    clearAddNote();
     setBusy(true);
     setMessage("Getting the clip…");
     try {
       const folder = await ensureDir();
       if (!folder) return;
-      const result = await window.flicks!.downloadMedia(folder, current.note);
+      const result = await window.flicks!.downloadMedia(folder, url, SHORT_CLIP_SEC);
       if (!result.ok || !result.asset) {
-        setMessage(result.message ?? "Could not get that clip.");
+        setMessage("");
+        flashNote(linkNote(result.message));
         return;
       }
-      const resolved = result.media?.find((item) => item.id === result.asset?.id);
-      const duration = result.asset.durationSec || 3;
-      fillSlot(index, {
-        mediaId: result.asset.id,
-        mediaName: result.asset.name,
-        madeAt: resolved?.madeAt,
-        previewUrl: resolved?.previewUrl ?? null,
-        duration,
-        inSec: 0,
-        outSec: Math.min(4, Math.max(0.4, duration)),
-        title: captionFromFile(current.title, result.asset.name),
-        focus: 0.5,
-        note: result.sourceUrl || current.note,
-      });
+      if (result.asset.durationSec > SHORT_CLIP_SEC) {
+        setMessage("");
+        flashNote("That clip is too long.");
+        return;
+      }
+      landClip(index, result.asset, result.media, result.sourceUrl || url);
+      setLinkText("");
       setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
     } finally {
       setBusy(false);
     }
   }
 
-  async function addClip(index = selected) {
+  async function uploadClip() {
     if (busy) return;
-    const current = slotsRef.current[index];
-    if (!current) {
-      setMessage("Pick a rank, then choose a clip.");
+    const index = rankForNewClip();
+    if (index < 0) {
+      flashNote("Every rank already has a clip.");
       return;
     }
-    setSelected(index);
+    selectRank(index);
+    clearAddNote();
     setBusy(true);
     setMessage("");
     try {
       const folder = await ensureDir();
       if (!folder) return;
-      setMessage("Opening the file window…");
       const result = await window.flicks!.importMedia(folder, "copy");
       if (!result.ok || !result.asset) {
-        setMessage(result.message ?? "No clip chosen.");
+        flashNote(uploadNote(result.message));
         return;
       }
-      const resolved = result.media?.find((item) => item.id === result.asset?.id);
-      const duration = result.asset.durationSec || 3;
-      fillSlot(index, {
-        mediaId: result.asset.id,
-        mediaName: result.asset.name,
-        madeAt: resolved?.madeAt,
-        previewUrl: resolved?.previewUrl ?? null,
-        duration,
-        inSec: 0,
-        outSec: Math.min(4, Math.max(0.4, duration)),
-        title: captionFromFile(current?.title, result.asset.name),
-        focus: 0.5,
-      });
+      landClip(index, result.asset, result.media);
       setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
     } finally {
       setBusy(false);
@@ -1353,7 +1417,7 @@ export function RankingStudio({
           <span className="timeline-hint">Opens the full timeline</span>
         </div>
       </header>
-      {message ? <p className="banner">{message}</p> : null}
+      {message && message !== "No file chosen." ? <p className="banner">{message}</p> : null}
       <div className="studio-body">
         <aside
           className="rail stack rank-rail clip-rail"
@@ -1381,25 +1445,15 @@ export function RankingStudio({
               {slots.map((item, index) => (
                 <button
                   key={item.id}
+                  type="button"
                   className={index === selected ? (item.mediaId ? "slot on" : "slot is-empty on") : item.mediaId ? "slot" : "slot is-empty"}
-                  onClick={() => {
-                    if (!item.mediaId) {
-                      void addClip(index);
-                      return;
-                    }
-                    if (index !== selected) {
-                      stopSequence();
-                      wantPlay.current = false;
-                      span.current = "file";
-                      nodeAt(liveDeck.current)?.pause();
-                    }
-                    setSelected(index);
-                  }}
+                  aria-pressed={index === selected}
+                  onClick={() => selectRank(index)}
                 >
                   <b>#{item.rank}</b>
                   <span className="slot-copy">
                     <span className="slot-name">
-                      {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Choose a clip"}
+                      {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Empty"}
                     </span>
                     {item.mediaId ? (
                       <span className="slot-time">{slotTimeLine(item.outSec - item.inSec, item.duration)}</span>
@@ -1420,26 +1474,20 @@ export function RankingStudio({
           <div className="phone-stage">
             <div
               className={slot?.previewUrl ? "phone phone-play" : "phone"}
-              onClick={() => {
-                if (!slot?.mediaId) {
-                  void addClip(selected);
-                  return;
-                }
-                playRanking();
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  if (!slot?.mediaId) {
-                    void addClip(selected);
-                    return;
-                  }
-                  playRanking();
-                }
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label={!slot?.mediaId ? "Choose a clip" : playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking"}
+              onClick={slot?.mediaId ? () => playRanking() : undefined}
+              onKeyDown={
+                slot?.mediaId
+                  ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        playRanking();
+                      }
+                    }
+                  : undefined
+              }
+              role={slot?.mediaId ? "button" : undefined}
+              tabIndex={slot?.mediaId ? 0 : undefined}
+              aria-label={slot?.mediaId ? (playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking") : undefined}
             >
               {slot?.previewUrl ? (
                 <>
@@ -1467,7 +1515,7 @@ export function RankingStudio({
                   />
                 </>
               ) : (
-                <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Choose a clip"}</p>
+                <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Paste a link or upload a file."}</p>
               )}
               {wash ? <div className="phone-warmth" style={{ background: wash }} /> : null}
               {headlineOnPhone ? (
@@ -1489,9 +1537,6 @@ export function RankingStudio({
               ) : null}
             </div>
             <div className="phone-side">
-              <button type="button" className="btn-gold phone-choose" disabled={busy} onClick={() => void addClip(selected)}>
-                Choose a clip
-              </button>
               {showRank ? (
                 <div className="phone-rank" style={{ fontFamily: titleFontFamily(font) }}>
                   {slot?.rank}
@@ -1507,6 +1552,33 @@ export function RankingStudio({
           </div>
         </div>
         <aside className="inspector stack rank-inspector">
+          <div className="desk-focus clip-add">
+            <label className="stack">
+              <span>Paste a link</span>
+              <input
+                className="field"
+                value={linkText}
+                placeholder="Paste a link"
+                aria-label="Paste a link"
+                spellCheck={false}
+                onChange={(event) => setLinkText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void addLink();
+                }}
+              />
+            </label>
+            <button className="btn-primary" type="button" disabled={busy} onClick={() => void addLink()}>
+              Add link
+            </button>
+            <button className="btn" type="button" disabled={busy} onClick={() => void uploadClip()}>
+              Upload a file
+            </button>
+            {addNote ? (
+              <p className="desk-note" role="status">
+                {addNote}
+              </p>
+            ) : null}
+          </div>
           <div className="desk-focus find-subject">
             <label className="stack">
               <span>Subject</span>
@@ -1657,20 +1729,6 @@ export function RankingStudio({
                   <label className="stack">
                     <span>Caption</span>
                     <input className="field" aria-label="Caption" value={slot.title} onChange={(event) => patch({ title: event.target.value })} />
-                  </label>
-                  <label className="stack">
-                    <span>Link</span>
-                    <span className="link-line">
-                      <input
-                        className="field"
-                        value={slot.note}
-                        placeholder="Paste a link"
-                        onChange={(event) => patch({ note: event.target.value })}
-                      />
-                      <button className="btn-small btn" disabled={busy} onClick={() => void getClip()}>
-                        Get
-                      </button>
-                    </span>
                   </label>
                   <div className="stack">
                     <span className="field-label">In and Out</span>

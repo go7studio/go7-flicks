@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { cutFromImpacts } from "../electron/action";
 import { delayVoiceInFilter, styledVoiceStart, voiceDelayFilter, voiceMuxArgs } from "../electron/cut";
-import { chooseFinishedDownload, downloadStep, isFinishedDownload, searchArgs, ytdlpDownloadArgs } from "../electron/download";
+import { chooseFinishedDownload, clipTooLong, downloadStep, isFinishedDownload, searchArgs, ytdlpDownloadArgs } from "../electron/download";
 import { mime } from "../electron/media-server";
 import { storedVoiceStart } from "../src/shared/model";
 
@@ -29,7 +29,21 @@ test("a download prefers h264 1080 aac mp4 and falls back when that format is mi
   assert.equal(fallback.includes("--merge-output-format"), false);
   assert.equal(fallback.includes("-S"), false);
   assert.equal(fallback.at(-1), "https://example.com/v");
+  assert.equal(fallback.includes("--match-filter"), false);
   assert.ok(fallback.includes("--no-playlist"));
+
+  const capped = ytdlpDownloadArgs({
+    ffmpegPath: "C:\\tools\\ffmpeg.exe",
+    outputTemplate: "out.%(ext)s",
+    link: "https://example.com/v",
+    preferred: true,
+    maxSec: 90,
+  });
+  assert.equal(capped[capped.indexOf("--match-filter") + 1], "duration <= 90");
+  assert.equal(capped.at(-1), "https://example.com/v");
+  assert.equal(clipTooLong(91, 90), true);
+  assert.equal(clipTooLong(90, 90), false);
+  assert.equal(clipTooLong(400, 0), false);
 
   assert.equal(downloadStep(null, false), "preferred");
   assert.equal(downloadStep(null, true), "fallback");

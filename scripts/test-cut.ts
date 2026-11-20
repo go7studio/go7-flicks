@@ -232,7 +232,13 @@ const PAGE = `
       if (!slots[index]) return { ok: false, detail: "Slot " + (index + 1) + " is missing." };
       slots[index].click();
       await sleep(150);
-      const captionField = document.querySelector('[aria-label="Caption"]');
+      let captionField = document.querySelector('[aria-label="Caption"]');
+      if (!captionField) {
+        const more = buttons().find((item) => item.innerText.replace(/\\s+/g, " ").trim() === "More");
+        if (more) more.click();
+        await sleep(150);
+        captionField = document.querySelector('[aria-label="Caption"]');
+      }
       const linkField = document.querySelector('input[placeholder="Paste a link"]');
       if (!captionField || !linkField) return { ok: false, detail: "Caption or link field is missing." };
       fill(captionField, caption);
@@ -242,7 +248,10 @@ const PAGE = `
     },
     async clickGet() {
       const before = document.querySelector(".banner")?.textContent?.trim() || "";
-      const button = buttons().find((item) => item.innerText.trim() === "Get" && !item.disabled);
+      const button = buttons().find((item) => {
+        const label = item.innerText.replace(/\\s+/g, " ").trim();
+        return (label === "Add link" || label === "Get") && !item.disabled;
+      });
       if (!button) return { ok: false, detail: "Get is not available." };
       button.click();
       const banner = await waitIdle(8 * 60 * 1000, before);
@@ -686,7 +695,7 @@ async function runCut(cdp: Cdp) {
 }
 
 function slotOpen(name: string | undefined): boolean {
-  return !name || name === "Empty slot" || name === "Add a clip" || name === "Choose a clip";
+  return !name || name === "Empty slot" || name === "Add a clip" || name === "Choose a clip" || name === "Empty";
 }
 
 async function runScan(cdp: Cdp, dir: string) {

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { exportCut, resolveAsset, styledVoiceStart } from "./cut";
-import { downloadClip, searchSubject } from "./download";
+import { clipTooLong, downloadClip, searchSubject } from "./download";
 import { clipLink } from "../src/shared/link";
 import {
   connectionKey,
@@ -50,7 +50,7 @@ import { seedMachineAccounts } from "./seed-accounts";
 import { renderFlick } from "./styled";
 import type { FlickProps } from "../src/remotion/FlickComposition";
 import { storedSoundRelative, storedVoiceStart, type ChannelFile, type ConnectionDraft, type Flick, type MediaAsset } from "../src/shared/model";
-import { subjectCount } from "../src/shared/subject";
+import { SHORT_CLIP_SEC, subjectCount } from "../src/shared/subject";
 
 const gate: MediaGate = { channelDir: null, channel: null, stagingDir: null };
 let mediaBase = "";
@@ -500,7 +500,7 @@ function registerIpc(): void {
             lastError = "That result was not a video.";
             continue;
           }
-          if (info.durationSec > 90) {
+          if (info.durationSec > SHORT_CLIP_SEC) {
             lastError = "That clip is too long.";
             continue;
           }
@@ -543,21 +543,24 @@ function registerIpc(): void {
       for (const cleanup of cleanups) cleanup();
     }
   });
-  ipcMain.handle("media:download", async (_event, dir: string, url: string) => {
+  ipcMain.handle("media:download", async (_event, dir: string, url: string, maxSec?: number) => {
+    const cap = typeof maxSec === "number" && Number.isFinite(maxSec) && maxSec > 0 ? maxSec : 0;
     let cleanup = () => {};
     try {
       const gpu = await probeGpu();
       if (!gpu.ffmpegPath) throw new Error("ffmpeg is not available to read that file.");
       const stored = storedClipFile(dir, url);
       if (stored) {
+        if (clipTooLong(stored.asset.durationSec, cap)) return { ok: false as const, message: "That clip is too long." };
         const channel = watch(dir);
         const media = await present(dir, channel, new Set([stored.asset.id]));
         const workingCopy = media.find((item) => item.id === stored.asset.id)?.workingCopy ?? false;
         return { ok: true as const, message: stored.asset.name, asset: stored.asset, media, workingCopy, sourceUrl: clipLink(url) };
       }
-      const got = await downloadClip(url, gpu.ffmpegPath, path.join(userDir(), "bin"));
+      const got = await downloadClip(url, gpu.ffmpegPath, path.join(userDir(), "bin"), cap || undefined);
       cleanup = got.cleanup;
       const info = await probeMedia(got.file, gpu.ffmpegPath);
+      if (clipTooLong(info.durationSec, cap)) throw new Error("That clip is too long.");
       const asset = importMedia(dir, got.file, "copy", info);
       const channel = watch(dir);
       const media = await present(dir, channel, new Set([asset.id]));
