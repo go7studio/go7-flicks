@@ -255,6 +255,7 @@ export function RankingStudio({
   const [busy, setBusy] = useState(false);
   const [recipes, setRecipes] = useState<Template[]>([]);
   const [clipsHeight, setClipsHeight] = useState<number | null>(readRankClips);
+  const [more, setMore] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playKind, setPlayKind] = useState<"ranking" | "clip" | null>(null);
   const [nowSec, setNowSec] = useState(0);
@@ -768,7 +769,7 @@ export function RankingStudio({
     const order = filledIds();
     const startId = rankingStartId(slots[selected]?.id, order);
     if (!startId) {
-      setMessage(slots.some((item) => item.mediaId) ? "That clip has no preview yet." : "Add a clip to play.");
+      setMessage(slots.some((item) => item.mediaId) ? "That clip has no preview yet." : "Choose a clip to play.");
       return;
     }
     const startAt = Math.max(0, order.indexOf(startId));
@@ -789,7 +790,7 @@ export function RankingStudio({
     stopSequence();
     const current = slots[selected];
     if (!current?.previewUrl) {
-      setMessage(current?.mediaId ? "That clip has no preview yet." : "This slot has no clip.");
+      setMessage(current?.mediaId ? "That clip has no preview yet." : "This rank has no clip.");
       return;
     }
     void startPlay(current.id, "file");
@@ -911,7 +912,7 @@ export function RankingStudio({
     setPasted("");
     setPlayback("countdown");
     setOrderIds([]);
-    setMessage("This desk is clear. Rankings already saved stay in the channel.");
+    setMessage("Started over. Rankings you already saved stay in this channel.");
   }
 
   function shuffle() {
@@ -1013,14 +1014,14 @@ export function RankingStudio({
   function pasteLines() {
     const lines = importedLines(pasted);
     if (!lines.length) {
-      setMessage("Paste one caption per slot.");
+      setMessage("Paste one caption per clip.");
       return;
     }
     const ids = slots.map((item) => item.id);
     const startId = slots[selected]?.id ?? ids[0] ?? "";
     const assigned = assignLinesInOrder(ids, lines, startId);
     setSlots((rows) => rows.map((item) => (assigned.has(item.id) ? { ...item, title: assigned.get(item.id) ?? item.title } : item)));
-    setMessage(assigned.size === 1 ? "Put 1 caption on the slots." : `Put ${assigned.size} captions on the slots.`);
+    setMessage(assigned.size === 1 ? "Put 1 caption on the clips." : `Put ${assigned.size} captions on the clips.`);
   }
 
   function move(step: number) {
@@ -1082,7 +1083,7 @@ export function RankingStudio({
     }
     const empty = slots.filter((item) => !item.mediaId).length;
     if (!empty) {
-      setMessage("Those slots are already filled.");
+      setMessage("Every rank already has a clip.");
       return;
     }
     setBusy(true);
@@ -1110,7 +1111,7 @@ export function RankingStudio({
       });
       if (first >= 0) setSelected(first);
       if (!placed) {
-        setMessage("Those slots are already filled.");
+        setMessage("Every rank already has a clip.");
         return;
       }
       const line = subjectLine(name);
@@ -1163,14 +1164,20 @@ export function RankingStudio({
     }
   }
 
-  async function addClip() {
-    const index = selected;
-    const current = slots[index];
+  async function addClip(index = selected) {
+    if (busy) return;
+    const current = slotsRef.current[index];
+    if (!current) {
+      setMessage("Pick a rank, then choose a clip.");
+      return;
+    }
+    setSelected(index);
     setBusy(true);
     setMessage("");
     try {
       const folder = await ensureDir();
       if (!folder) return;
+      setMessage("Opening the file window…");
       const result = await window.flicks!.importMedia(folder, "copy");
       if (!result.ok || !result.asset) {
         setMessage(result.message ?? "No clip chosen.");
@@ -1189,7 +1196,7 @@ export function RankingStudio({
         title: captionFromFile(current?.title, result.asset.name),
         focus: 0.5,
       });
-      if (result.workingCopy) setMessage("Working copy is on this computer.");
+      setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
     } finally {
       setBusy(false);
     }
@@ -1197,7 +1204,7 @@ export function RankingStudio({
 
   async function openTimeline() {
     if (!slots.some((item) => item.mediaId)) {
-      setMessage("Add at least one clip.");
+      setMessage("Choose at least one clip.");
       return;
     }
     setBusy(true);
@@ -1354,43 +1361,8 @@ export function RankingStudio({
           data-clips-sized={clipsHeight != null ? "" : undefined}
           style={clipsHeight != null ? { ["--rank-clips-height" as string]: `${clipsHeight}px` } : undefined}
         >
-          <div className="rank-rest">
-            <p className="rail-label">Play order</p>
-            <div className="order-stack">
-              <button className={playback === "countdown" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("countdown")}>
-                <ClockIcon />
-                Countdown
-              </button>
-              {playback === "countdown" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-              <button className={playback === "listed" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("listed")}>
-                <ListIcon />
-                Listed
-              </button>
-              {playback === "listed" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-              <button className={playback === "skip" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("skip")}>
-                <SkipIcon />
-                Skip around
-              </button>
-              {playback === "skip" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-              <button className={playback === "shuffle" ? "order-btn on" : "order-btn"} onClick={shuffle}>
-                <ShuffleIcon />
-                Shuffle
-              </button>
-              {playback === "shuffle" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
-            </div>
-            <button className="btn desk-save" onClick={() => void saveRecipe()}>
-              Save template
-            </button>
-            <p className="desk-note">Keeps this order and these words, and leaves the clips off the template.</p>
-            {recipes.length ? (
-              <div className="order-stack">
-                {recipes.map((recipe) => (
-                  <button key={recipe.id} className="choice" onClick={() => loadRecipe(recipe)}>
-                    {recipe.name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+          <div className="rank-rest rank-rest-quiet">
+            <p className="rail-label">Ranks</p>
           </div>
           <div
             className="rank-clips-split"
@@ -1405,25 +1377,16 @@ export function RankingStudio({
             onKeyDown={nudgeClips}
           />
           <div className="rank-clips" ref={clipsPaneRef}>
-            <p className="rail-label">Ask for more slots</p>
-            <div className="count-row" role="group" aria-label="Ask for more slots">
-              {[5, 6, 7].map((count) => (
-                <button
-                  key={count}
-                  className={slots.length === count ? "count-btn on" : "count-btn"}
-                  aria-pressed={slots.length === count}
-                  onClick={() => setCount(count)}
-                >
-                  {count} slots
-                </button>
-              ))}
-            </div>
             <div className="slot-list">
               {slots.map((item, index) => (
                 <button
                   key={item.id}
                   className={index === selected ? (item.mediaId ? "slot on" : "slot is-empty on") : item.mediaId ? "slot" : "slot is-empty"}
                   onClick={() => {
+                    if (!item.mediaId) {
+                      void addClip(index);
+                      return;
+                    }
                     if (index !== selected) {
                       stopSequence();
                       wantPlay.current = false;
@@ -1436,7 +1399,7 @@ export function RankingStudio({
                   <b>#{item.rank}</b>
                   <span className="slot-copy">
                     <span className="slot-name">
-                      {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Add a clip"}
+                      {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Choose a clip"}
                     </span>
                     {item.mediaId ? (
                       <span className="slot-time">{slotTimeLine(item.outSec - item.inSec, item.duration)}</span>
@@ -1446,29 +1409,37 @@ export function RankingStudio({
                 </button>
               ))}
             </div>
-            <button type="button" className="slot-add" onClick={addSlot}>
-              Add a clip
-            </button>
-            <button type="button" className="slot-add" onClick={startFresh}>
-              New ranking
-            </button>
-            <p className="desk-note">Clears this desk. Rankings already saved stay in the channel.</p>
+            {slots.some((item) => item.mediaId) ? (
+              <button type="button" className="slot-add" onClick={addSlot}>
+                Add another slot
+              </button>
+            ) : null}
           </div>
         </aside>
         <div className="stage-wrap">
           <div className="phone-stage">
             <div
               className={slot?.previewUrl ? "phone phone-play" : "phone"}
-              onClick={playRanking}
+              onClick={() => {
+                if (!slot?.mediaId) {
+                  void addClip(selected);
+                  return;
+                }
+                playRanking();
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
+                  if (!slot?.mediaId) {
+                    void addClip(selected);
+                    return;
+                  }
                   playRanking();
                 }
               }}
               role="button"
               tabIndex={0}
-              aria-label={playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking"}
+              aria-label={!slot?.mediaId ? "Choose a clip" : playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking"}
             >
               {slot?.previewUrl ? (
                 <>
@@ -1496,7 +1467,7 @@ export function RankingStudio({
                   />
                 </>
               ) : (
-                <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Add a clip"}</p>
+                <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Choose a clip"}</p>
               )}
               {wash ? <div className="phone-warmth" style={{ background: wash }} /> : null}
               {headlineOnPhone ? (
@@ -1517,18 +1488,20 @@ export function RankingStudio({
                 </div>
               ) : null}
             </div>
-            {showRank ? (
-              <div className="phone-rank" style={{ fontFamily: titleFontFamily(font) }}>
-                {slot?.rank}
-              </div>
-            ) : null}
+            <div className="phone-side">
+              <button type="button" className="btn-gold phone-choose" disabled={busy} onClick={() => void addClip(selected)}>
+                Choose a clip
+              </button>
+              {showRank ? (
+                <div className="phone-rank" style={{ fontFamily: titleFontFamily(font) }}>
+                  {slot?.rank}
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="desk-play">
             <button type="button" className="btn-gold" onClick={playRanking}>
               {playing && playKind === "ranking" ? "Pause" : "Play ranking"}
-            </button>
-            <button type="button" className="desk-play-all" onClick={playThisClip}>
-              {playing && playKind === "clip" ? "Pause" : "This clip"}
             </button>
             <span className="desk-clock">{formatClock(slot?.previewUrl ? nowSec : 0)}</span>
           </div>
@@ -1537,31 +1510,25 @@ export function RankingStudio({
           <div className="desk-focus find-subject">
             <label className="stack">
               <span>Subject</span>
-              <span className="link-line">
-                <input
-                  className="field"
-                  value={subject}
-                  placeholder="Name a subject"
-                  onChange={(event) => setSubject(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void findClips();
-                  }}
-                />
-                <button className="btn-primary" type="button" disabled={busy} onClick={() => void findClips()}>
-                  Find clips
-                </button>
-              </span>
+              <input
+                className="field"
+                value={subject}
+                placeholder="Name a subject"
+                onChange={(event) => setSubject(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void findClips();
+                }}
+              />
             </label>
-            <p className="desk-note">This searches for the subject you typed and fills empty slots with up to three short clips, and it does not use Cursor or Codex.</p>
+            <button className="btn-primary" type="button" disabled={busy} onClick={() => void findClips()}>
+              Find clips
+            </button>
+            <p className="desk-note">Type a topic. This finds up to three short clips.</p>
           </div>
           <div className="desk-focus">
             <label className="stack">
               <span>Headline</span>
               <textarea className="field" rows={2} value={headline} onChange={(event) => setHeadline(event.target.value)} />
-            </label>
-            <label className="stack">
-              <span>Accent words</span>
-              <input className="field" value={accentWords} onChange={(event) => setAccentWords(event.target.value)} />
             </label>
             <div className="toggle-line">
               <span>Show the rank number</span>
@@ -1572,115 +1539,176 @@ export function RankingStudio({
               <button type="button" className={showCaptions ? "switch on" : "switch"} role="switch" aria-checked={showCaptions} aria-label="Show captions" onClick={() => setShowCaptions((value) => !value)} />
             </div>
           </div>
-          <WhichClip
-            clips={assistClips}
-            disabled={busy}
-            onHeadline={setHeadline}
-            onTitle={(id, title) => setSlots((rows) => rows.map((item) => (item.id === id ? { ...item, title } : item)))}
-          />
-          <label className="stack">
-            <span>Highlight color</span>
-            <span className="color-line">
-              <input type="color" value={swatch} aria-label="Color" onChange={(event) => setColor(event.target.value)} />
-              <input
-                className="field hex"
-                spellCheck={false}
-                value={color.toUpperCase()}
-                onChange={(event) => {
-                  const next = event.target.value.trim();
-                  setColor(next.startsWith("#") ? next : `#${next}`);
-                }}
-              />
-            </span>
-          </label>
-          <label className="stack">
-            <span>Title stroke</span>
-            <p className="muted tiny">Saved on the flick. The paper pill keeps the words clear.</p>
-            <span className="stroke-line">
-              <input type="range" min={0} max={12} value={stroke} aria-label="Title stroke" onChange={(event) => setStroke(Number(event.target.value))} />
-              <input
-                className="field stroke-num"
-                type="number"
-                min={0}
-                max={12}
-                value={stroke}
-                aria-label="Title stroke amount"
-                onChange={(event) => setStroke(Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
-              />
-            </span>
-          </label>
-          <StyleFields
-            font={font}
-            lineSize={lineSize}
-            lineColor={lineColor}
-            warmth={warmth}
-            pasted={pasted}
-            pasteHint="One caption per slot, from the selected slot down."
-            onFont={setFont}
-            onLineSize={(size) => setLineSize(lineSizeOf(size))}
-            onLineColor={setLineColor}
-            onWarmth={setWarmth}
-            onPasted={setPasted}
-            onPaste={pasteLines}
-          />
-          {slot ? (
-            <>
-              <div className="add-line">
-                <span>Choose a file</span>
-                <button className="plus" disabled={busy} aria-label="Choose a file" onClick={() => void addClip()}>
-                  +
+          <button type="button" className="more-toggle" aria-expanded={more} onClick={() => setMore((value) => !value)}>
+            More
+          </button>
+          {more ? (
+            <div className="more-panel">
+              <p className="rail-label">Play order</p>
+              <div className="order-stack">
+                <button className={playback === "countdown" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("countdown")}>
+                  <ClockIcon />
+                  Countdown
                 </button>
+                {playback === "countdown" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
+                <button className={playback === "listed" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("listed")}>
+                  <ListIcon />
+                  Listed
+                </button>
+                {playback === "listed" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
+                <button className={playback === "skip" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("skip")}>
+                  <SkipIcon />
+                  Skip around
+                </button>
+                {playback === "skip" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
+                <button className={playback === "shuffle" ? "order-btn on" : "order-btn"} onClick={shuffle}>
+                  <ShuffleIcon />
+                  Shuffle
+                </button>
+                {playback === "shuffle" ? <p className="order-hint">{playbackSentence(playback, slots, orderIds)}</p> : null}
               </div>
-              {slot.mediaName ? <p className="file-note">{slot.mediaName}</p> : null}
+              <button type="button" className="desk-play-all" onClick={playThisClip}>
+                {playing && playKind === "clip" ? "Pause" : "This clip"}
+              </button>
+              <button className="btn desk-save" onClick={() => void saveRecipe()}>
+                Save template
+              </button>
+              <p className="desk-note">Saves this order and these words. The video files stay off it.</p>
+              {recipes.length ? (
+                <div className="order-stack">
+                  {recipes.map((recipe) => (
+                    <button key={recipe.id} className="choice" onClick={() => loadRecipe(recipe)}>
+                      {recipe.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <div className="count-row" role="group" aria-label="How many ranks">
+                {[5, 6, 7].map((count) => (
+                  <button
+                    key={count}
+                    className={slots.length === count ? "count-btn on" : "count-btn"}
+                    aria-pressed={slots.length === count}
+                    onClick={() => setCount(count)}
+                  >
+                    {count} ranks
+                  </button>
+                ))}
+              </div>
+              <WhichClip
+                clips={assistClips}
+                disabled={busy}
+                onHeadline={setHeadline}
+                onTitle={(id, title) => setSlots((rows) => rows.map((item) => (item.id === id ? { ...item, title } : item)))}
+              />
               <label className="stack">
-                <span>Caption</span>
-                <input className="field" aria-label="Caption" value={slot.title} onChange={(event) => patch({ title: event.target.value })} />
+                <span>Accent words</span>
+                <input className="field" aria-label="Accent words" value={accentWords} onChange={(event) => setAccentWords(event.target.value)} />
               </label>
               <label className="stack">
-                <span>Link</span>
-                <span className="link-line">
+                <span>Highlight color</span>
+                <span className="color-line">
+                  <input type="color" value={swatch} aria-label="Color" onChange={(event) => setColor(event.target.value)} />
                   <input
-                    className="field"
-                    value={slot.note}
-                    placeholder="Paste a link"
-                    onChange={(event) => patch({ note: event.target.value })}
+                    className="field hex"
+                    spellCheck={false}
+                    aria-label="Highlight color hex"
+                    value={color.toUpperCase()}
+                    onChange={(event) => {
+                      const next = event.target.value.trim();
+                      setColor(next.startsWith("#") ? next : `#${next}`);
+                    }}
                   />
-                  <button className="btn-small btn" disabled={busy} onClick={() => void getClip()}>
-                    Get
-                  </button>
                 </span>
               </label>
-              <div className="stack">
-                <span className="field-label">In and Out</span>
-                <div className="inout">
-                  <ClockField
-                    key={`${slot.id}-in`}
-                    label="In"
-                    value={slot.inSec}
-                    onCommit={(next) => writeSlot(slot.id, (row) => ({ inSec: clampIn(next, row.outSec, row.duration) }))}
+              <label className="stack">
+                <span>Title stroke</span>
+                <p className="muted tiny">A thicker stroke makes the title easier to read.</p>
+                <span className="stroke-line">
+                  <input type="range" min={0} max={12} value={stroke} aria-label="Title stroke" onChange={(event) => setStroke(Number(event.target.value))} />
+                  <input
+                    className="field stroke-num"
+                    type="number"
+                    min={0}
+                    max={12}
+                    value={stroke}
+                    aria-label="Title stroke amount"
+                    onChange={(event) => setStroke(Math.min(12, Math.max(0, Number(event.target.value) || 0)))}
                   />
-                  <span className="inout-dash">–</span>
-                  <ClockField
-                    key={`${slot.id}-out`}
-                    label="Out"
-                    value={slot.outSec}
-                    onCommit={(next) => writeSlot(slot.id, (row) => ({ outSec: clampOut(next, row.inSec, row.duration) }))}
-                  />
-                </div>
-                {slot.duration > 0 ? <p className="muted">This file is {slot.duration.toFixed(1)}s. In and out stay inside it.</p> : null}
-              </div>
-              <div className="nudge-row">
-                <span>Earlier</span>
-                <button className="nudge" aria-label="Earlier" onClick={() => move(-1)}>
-                  ←
-                </button>
-                <span className="grow" />
-                <span>Later</span>
-                <button className="nudge" aria-label="Later" onClick={() => move(1)}>
-                  →
-                </button>
-              </div>
-            </>
+                </span>
+              </label>
+              <StyleFields
+                font={font}
+                lineSize={lineSize}
+                lineColor={lineColor}
+                warmth={warmth}
+                pasted={pasted}
+                pasteHint="One caption per clip, starting with the one you picked."
+                onFont={setFont}
+                onLineSize={(size) => setLineSize(lineSizeOf(size))}
+                onLineColor={setLineColor}
+                onWarmth={setWarmth}
+                onPasted={setPasted}
+                onPaste={pasteLines}
+              />
+              {slot ? (
+                <>
+                  {slot.mediaName ? <p className="file-note">{slot.mediaName}</p> : null}
+                  <label className="stack">
+                    <span>Caption</span>
+                    <input className="field" aria-label="Caption" value={slot.title} onChange={(event) => patch({ title: event.target.value })} />
+                  </label>
+                  <label className="stack">
+                    <span>Link</span>
+                    <span className="link-line">
+                      <input
+                        className="field"
+                        value={slot.note}
+                        placeholder="Paste a link"
+                        onChange={(event) => patch({ note: event.target.value })}
+                      />
+                      <button className="btn-small btn" disabled={busy} onClick={() => void getClip()}>
+                        Get
+                      </button>
+                    </span>
+                  </label>
+                  <div className="stack">
+                    <span className="field-label">In and Out</span>
+                    <div className="inout">
+                      <ClockField
+                        key={`${slot.id}-in`}
+                        label="In"
+                        value={slot.inSec}
+                        onCommit={(next) => writeSlot(slot.id, (row) => ({ inSec: clampIn(next, row.outSec, row.duration) }))}
+                      />
+                      <span className="inout-dash">–</span>
+                      <ClockField
+                        key={`${slot.id}-out`}
+                        label="Out"
+                        value={slot.outSec}
+                        onCommit={(next) => writeSlot(slot.id, (row) => ({ outSec: clampOut(next, row.inSec, row.duration) }))}
+                      />
+                    </div>
+                    {slot.duration > 0 ? <p className="muted">This file is {slot.duration.toFixed(1)}s. In and out stay inside it.</p> : null}
+                  </div>
+                  <div className="nudge-row">
+                    <span>Earlier</span>
+                    <button className="nudge" aria-label="Earlier" onClick={() => move(-1)}>
+                      ←
+                    </button>
+                    <span className="grow" />
+                    <span>Later</span>
+                    <button className="nudge" aria-label="Later" onClick={() => move(1)}>
+                      →
+                    </button>
+                  </div>
+                </>
+              ) : null}
+              <button type="button" className="btn" onClick={startFresh}>
+                New ranking
+              </button>
+              <p className="desk-note">Starts over. Rankings you already saved stay in this channel.</p>
+            </div>
           ) : null}
         </aside>
       </div>

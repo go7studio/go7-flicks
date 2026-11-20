@@ -34,7 +34,7 @@ import { bytesToBase64, microphoneMessage } from "../shared/microphone";
 import { clipDuration, storedVoiceStart, timelineEnd, uid, type CallResult, type Clip, type ConnectionPublic, type Flick, type ShelfEntry, type Template } from "../shared/model";
 import type { ResolvedMedia } from "../shared/api";
 import type { AssistClip } from "../shared/assist";
-import { UPLOAD_FILE_NOTE, uploadHandout, type UploadHandout } from "../shared/upload-paste";
+import { UPLOAD_FILE_NOTE, uploadHandout } from "../shared/upload-paste";
 import { whenPhrase } from "../shared/when";
 import { StyleFields } from "./StyleFields";
 import { WhichClip } from "./WhichClip";
@@ -47,6 +47,7 @@ function mediaLimit(media: ResolvedMedia[], mediaId: string | null): number | un
 }
 
 type LaneKind = "rank" | "loop" | "face" | "game" | "video" | "other";
+type LayoutKind = "ranking" | "dual" | "split" | "video";
 
 function laneKind(name: string): LaneKind {
   const key = name.trim().toLowerCase();
@@ -58,18 +59,75 @@ function laneKind(name: string): LaneKind {
   return "other";
 }
 
-/** Words on the clip card. Rank is the main picture. Loop is the other region. */
-function clipSpot(name: string): { use: string; plus: string; spot: string } {
+function layoutKind(flick: { templateId?: string; tracks: { name: string }[] }): LayoutKind {
+  const id = flick.templateId ?? "";
+  if (id === "builtin-ranking") return "ranking";
+  if (id === "builtin-dual") return "dual";
+  if (id === "builtin-split") return "split";
+  const names = new Set(flick.tracks.map((track) => track.name.trim().toLowerCase()));
+  if (names.has("rank") || names.has("loop")) return "ranking";
+  if (names.has("face") || names.has("gameplay")) return "dual";
+  if (names.has("top") && names.has("bottom")) return "split";
+  return "video";
+}
+
+/** Words on the clip card. A ranking uses ranking and background. A dual video keeps face and gameplay. One video stays video. */
+function clipSpot(name: string, kind: LayoutKind): { use: string; plus: string; spot: string } {
   const key = name.trim().toLowerCase();
-  if (key === "rank" || key === "video") return { use: "Use as the video", plus: "+ Video", spot: "the video" };
-  if (key === "loop") return { use: "Use as the loop", plus: "+ Loop", spot: "the loop" };
-  if (key === "top") return { use: "Use as the top", plus: "+ Top", spot: "the top" };
-  if (key === "bottom") return { use: "Use as the bottom", plus: "+ Bottom", spot: "the bottom" };
-  if (key === "face") return { use: "Use as the face", plus: "+ Face", spot: "the face" };
-  if (key === "gameplay" || key === "game") return { use: "Use as the game", plus: "+ Game", spot: "the game" };
-  const clean = name.trim();
-  if (!clean || /^(place|append|rank)$/i.test(clean)) return { use: "Use as the video", plus: "+ Video", spot: "the video" };
-  return { use: `Use as the ${clean}`, plus: `+ ${clean}`, spot: `the ${clean}` };
+  if (kind === "ranking") {
+    if (key === "loop" || key === "bottom") return { use: "Use as the background", plus: "Add to the background", spot: "the background" };
+    return { use: "Put on the ranking", plus: "Add to the ranking", spot: "the ranking" };
+  }
+  if (kind === "dual") {
+    if (key === "gameplay" || key === "game" || key === "bottom") return { use: "Use as the gameplay", plus: "+ Gameplay", spot: "the gameplay" };
+    return { use: "Use as the face", plus: "+ Face", spot: "the face" };
+  }
+  if (kind === "split") {
+    if (key === "bottom" || key === "loop") return { use: "Use as the bottom", plus: "+ Bottom", spot: "the bottom" };
+    return { use: "Use as the top", plus: "+ Top", spot: "the top" };
+  }
+  return { use: "Use as the video", plus: "Add to the video", spot: "the video" };
+}
+
+function laneTitle(name: string, kind: LayoutKind): string {
+  const key = name.trim().toLowerCase();
+  if (kind === "ranking") {
+    if (key === "loop" || key === "bottom") return "Background";
+    return "Clips";
+  }
+  if (kind === "dual") {
+    if (key === "gameplay" || key === "game" || key === "bottom") return "Gameplay";
+    if (key === "face" || key === "top") return "Face";
+    return name.trim() || "Video";
+  }
+  if (kind === "split") {
+    if (key === "bottom" || key === "loop") return "Bottom";
+    if (key === "top" || key === "face") return "Top";
+    return name.trim() || "Video";
+  }
+  return "Video";
+}
+
+function fileBase(filePath: string): string {
+  const parts = filePath.split(/[\\/]/);
+  return parts[parts.length - 1] || filePath;
+}
+
+function plainError(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : fallback;
+  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*/i, "").replace(/^Error:\s*/, "");
+  return cleaned || fallback;
+}
+
+function voiceOwnerId(flick: Flick): string | null {
+  if (flick.voiceRelative !== "voice.mp3") return null;
+  let best: { id: string; dist: number } | null = null;
+  const start = flick.voiceStartSec ?? 0;
+  for (const clip of flick.clips) {
+    const dist = Math.abs(clip.startSec - start);
+    if (!best || dist < best.dist) best = { id: clip.id, dist };
+  }
+  return best?.id ?? null;
 }
 
 function shelfTitle(fileName: string, peers: { id: string; name: string }[] = [], selfId = ""): string {
@@ -351,13 +409,15 @@ export function CanvasScreen({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   const [recording, setRecording] = useState(false);
-  const [upload, setUpload] = useState<UploadHandout | null>(null);
+  const [savedFile, setSavedFile] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [copied, setCopied] = useState<"title" | "description" | "">("");
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [replaceId, setReplaceId] = useState("");
   const [pasted, setPasted] = useState("");
   const playerRef = useRef<PlayerRef>(null);
+  const voiceAudio = useRef<HTMLAudioElement>(null);
   const flickRef = useRef<Flick | null>(null);
   const dirty = useRef(false);
   const saveChain = useRef(Promise.resolve());
@@ -409,7 +469,8 @@ export function CanvasScreen({
   }
 
   useEffect(() => {
-    setUpload(null);
+    setSavedFile(null);
+    setMoreOpen(false);
     setCopied("");
     void window.flicks!.readFlick(dir, flickId).then((result) => {
       if (!result.ok || !result.flick || !result.channel) {
@@ -879,6 +940,9 @@ export function CanvasScreen({
   async function addToTrack(asset: ResolvedMedia, trackId: string, mode: "place" | "append") {
     const current = flickRef.current;
     if (!current) return;
+    const spot = clipSpot(current.tracks.find((track) => track.id === trackId)?.name ?? "", layoutKind(current));
+    const title = shelfTitle(asset.name);
+    setMessage(mode === "append" ? `Adding ${title} to ${spot.spot}…` : `Putting ${title} on ${spot.spot}…`);
     const staged = await window.flicks!.stageMedia(dir, asset.id);
     const latest = flickRef.current ?? current;
     if (!staged.ok || !staged.media) {
@@ -897,6 +961,7 @@ export function CanvasScreen({
     setSelectedRegion(
       visibleSelection(framed.regions, framed.clips, framed.regions.find((region) => region.trackId === trackId)?.id ?? null),
     );
+    setMessage(mode === "append" ? `Added ${title} to ${spot.spot}.` : `Put ${title} on ${spot.spot}.`);
   }
 
   async function runLine() {
@@ -937,14 +1002,22 @@ export function CanvasScreen({
   async function runVoice() {
     const current = flickRef.current;
     const chosen = current?.clips.find((clip) => clip.id === selectedClip);
-    if (!current || !chosen) return;
+    if (!current || !chosen) {
+      setMessage("Pick a clip on the timeline first.");
+      return;
+    }
+    const line = spokenLine(chosen.line, mediaRef.current.find((item) => item.id === chosen.mediaId)?.name);
+    if (!line) {
+      setMessage("Write a line first.");
+      return;
+    }
     if (!voiceId) {
-      setMessage("Add and test an ElevenLabs or MiniMax connection first.");
+      setMessage("Connect a voice account in Connections first.");
       return;
     }
     const startSec = chosen.startSec;
     setBusy("Making voice…");
-    const result = await window.flicks!.makeVoice(voiceId, dir, current.id, chosen.line || chosen.label, startSec);
+    const result = await window.flicks!.makeVoice(voiceId, dir, current.id, line, startSec);
     setBusy("");
     if (!result.ok) {
       setMessage(result.message ?? "Voice failed.");
@@ -954,6 +1027,7 @@ export function CanvasScreen({
     if (previewUrl) setVoiceUrl(previewUrl);
     const latest = flickRef.current ?? current;
     edit({ ...latest, voiceRelative: "voice.mp3", voiceStartSec: storedVoiceStart(startSec) });
+    setMessage("Voice is ready. Press play to hear it.");
   }
 
   async function finishNarration(folder: string, flickId: string, blob: Blob, mime: string) {
@@ -975,8 +1049,15 @@ export function CanvasScreen({
       const previewUrl = "previewUrl" in result ? (result.previewUrl as string | undefined) : undefined;
       if (previewUrl) setVoiceUrl(previewUrl);
       const latest = flickRef.current;
-      if (latest) edit({ ...latest, voiceRelative: "voice.mp3" });
-      setMessage("Narration saved.");
+      if (latest) {
+        const chosen = latest.clips.find((clip) => clip.id === selectedClip);
+        edit({
+          ...latest,
+          voiceRelative: "voice.mp3",
+          voiceStartSec: storedVoiceStart(chosen?.startSec ?? latest.voiceStartSec),
+        });
+      }
+      setMessage("Narration is ready. Press play to hear it.");
     } catch (error) {
       if (openFlickRef.current === flickId) {
         setMessage(error instanceof Error ? error.message : "Could not save the narration.");
@@ -996,6 +1077,10 @@ export function CanvasScreen({
     }
     const current = flickRef.current;
     if (!current) return;
+    if (!current.clips.some((clip) => clip.id === selectedClip)) {
+      setMessage("Pick a clip on the timeline first.");
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setMessage("This window cannot use the microphone.");
       return;
@@ -1056,16 +1141,27 @@ export function CanvasScreen({
   async function exportFlick(kind: "cut" | "styled") {
     const named = flickRef.current;
     if (!named) return;
+    setSavedFile(null);
+    setMessage(kind === "styled" ? "Opening the save window…" : "Opening the save window for the top picture…");
     const primed = await flushSave(dir);
     if (!primed.ok) {
-      setMessage(primed.message || "Could not save the flick before export.");
+      setMessage(primed.message || "Could not save before export.");
       return;
     }
-    const output = await window.flicks!.pickSave(exportSavePath(dir, named.name));
-    if (!output) return;
+    let output: string | null = null;
+    try {
+      output = await window.flicks!.pickSave(exportSavePath(dir, named.name));
+    } catch (error) {
+      setMessage(plainError(error, "Could not open the save window."));
+      return;
+    }
+    if (!output) {
+      setMessage("The save window was closed. Nothing was written.");
+      return;
+    }
     const flushed = await flushSave(dir);
     if (!flushed.ok) {
-      setMessage(flushed.message || "Could not save the flick before export.");
+      setMessage(flushed.message || "Could not save before export.");
       return;
     }
     const latest = flickRef.current;
@@ -1077,14 +1173,14 @@ export function CanvasScreen({
           ? await window.flicks!.exportCut(dir, latest.id, output)
           : await window.flicks!.exportStyled(dir, latest.id, output);
       if (result.ok) {
-        setMessage(`Saved ${output}`);
+        setSavedFile(output);
+        setMessage(`Saved ${fileBase(output)}`);
         setCopied("");
-        setUpload(uploadHandout(latest, mediaRef.current));
       } else {
         setMessage(result.message ?? "Export failed.");
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Export failed.");
+      setMessage(plainError(error, "Export failed."));
     } finally {
       setBusy("");
     }
@@ -1213,7 +1309,11 @@ export function CanvasScreen({
   const clipQuery = shelfQuery.trim().toLowerCase();
   const videoAssets = shelfCopies(media.filter((asset) => asset.width > 0));
   const shelfPeers = videoAssets.map(({ asset }) => ({ id: asset.id, name: asset.name }));
-  const selectedTrackName = flick.tracks.find((track) => track.id === selected?.trackId)?.name.trim() || "This cut";
+  const kind = layoutKind(flick);
+  const handout = uploadHandout(flick, media);
+  const voiceOwner = voiceOwnerId(flick);
+  const trackLabel = flick.tracks.find((track) => track.id === selected?.trackId)?.name ?? "";
+  const selectedTrackName = selected ? laneTitle(trackLabel, kind) : "This cut";
   const visibleAssets = videoAssets.filter(({ asset }) => {
     if (!clipQuery) return true;
     const parts = shelfName(asset.name, shelfPeers, asset.id);
@@ -1235,55 +1335,82 @@ export function CanvasScreen({
         <LeaveNav onHome={onHome} onLibrary={onLibrary} onChannel={onBack} channelName={channelName} />
         <input
           className="field flick-name"
-          aria-label="Flick name"
+          aria-label="Video name"
           value={flick.name}
           onChange={(event) => edit({ ...flick, name: event.target.value })}
         />
-        <span className="muted tiny">Encoder: {encoder}</span>
         <span className="spacer" />
         <button className="btn" onClick={onConnections}>
           Connections
         </button>
         {DESK_TEMPLATES.has(flick.templateId ?? "") ? (
           <button type="button" className="btn" onClick={() => onOpenDesk?.()}>
-            Desk
+            {flick.templateId === "builtin-ranking" ? "Ranking" : "Split"}
           </button>
         ) : null}
         <button
-          className="btn"
-          title="Writes the top picture. Captions, headlines, ranks, and clip audio are not in that file. Sound is the voice and the music."
-          aria-label="Export top picture"
-          disabled={encoder === "ffmpeg missing" || Boolean(busy)}
-          onClick={() => void exportFlick("cut")}
+          className="btn-primary"
+          disabled={Boolean(busy)}
+          title="Saves the vertical video, with the clips and the words."
+          onClick={() => void exportFlick("styled")}
         >
-          Export top picture
+          Save vertical video
         </button>
-        <button className="btn-primary" disabled={Boolean(busy)} onClick={() => void exportFlick("styled")}>
-          Export styled
-        </button>
+        <div className="toolbar-more">
+          <button type="button" className="btn" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>
+            More
+          </button>
+          {moreOpen ? (
+            <div className="toolbar-more-menu">
+              <button
+                className="btn"
+                type="button"
+                title="Writes the top picture only. Captions, headlines, ranks, and clip audio are not in that file. Sound is the voice and the music."
+                aria-label="Export top picture"
+                disabled={encoder === "ffmpeg missing" || Boolean(busy)}
+                onClick={() => void exportFlick("cut")}
+              >
+                Export top picture
+              </button>
+              <label className="stack">
+                <span>Voice account</span>
+                <select className="field" aria-label="Voice account" value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>
+                  <option value="">Choose</option>
+                  {connections
+                    .filter((row) => row.kind === "elevenlabs" || row.kind === "minimax")
+                    .map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name}
+                        {row.connected ? "" : " (not tested)"}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+          ) : null}
+        </div>
       </header>
       {busy ? <p className="banner">{busy}</p> : message ? <p className="banner">{message}</p> : null}
-      {upload ? (
-        <section className="banner upload-paste" aria-label="YouTube title and description">
-          <p>{UPLOAD_FILE_NOTE}</p>
-          <div className="upload-paste-row">
-            <span className="upload-paste-label">Title</span>
-            <p className="upload-paste-text">{upload.title}</p>
-            <button className="btn" type="button" aria-label="Copy title" onClick={() => void copyUploadText(upload.title, "title")}>
-              Copy
-            </button>
-            {copied === "title" ? <span className="tiny muted">Copied</span> : null}
-          </div>
-          <div className="upload-paste-row">
-            <span className="upload-paste-label">Description</span>
-            <p className="upload-paste-text">{upload.description}</p>
-            <button className="btn" type="button" aria-label="Copy description" onClick={() => void copyUploadText(upload.description, "description")}>
-              Copy
-            </button>
-            {copied === "description" ? <span className="tiny muted">Copied</span> : null}
-          </div>
-        </section>
-      ) : null}
+      <section className="upload-card" aria-label="YouTube title and description">
+        {savedFile ? <p className="saved-name">Saved {fileBase(savedFile)}</p> : null}
+        <div className="upload-row">
+          <span className="upload-paste-label">YouTube title</span>
+          <textarea className="field upload-box" readOnly rows={2} aria-label="YouTube title" value={handout.title} />
+          <button className="btn" type="button" aria-label="Copy YouTube title" onClick={() => void copyUploadText(handout.title, "title")}>
+            Copy
+          </button>
+          {copied === "title" ? <span className="tiny muted">Copied</span> : null}
+        </div>
+        <div className="upload-row">
+          <span className="upload-paste-label">YouTube description</span>
+          <textarea className="field upload-box" readOnly rows={2} aria-label="YouTube description" value={handout.description} />
+          <button className="btn" type="button" aria-label="Copy YouTube description" onClick={() => void copyUploadText(handout.description, "description")}>
+            Copy
+          </button>
+          {copied === "description" ? <span className="tiny muted">Copied</span> : null}
+        </div>
+        <p className="tiny muted">{UPLOAD_FILE_NOTE}</p>
+      </section>
       <div
         className="workspace"
         ref={workspaceRef}
@@ -1360,7 +1487,7 @@ export function CanvasScreen({
                     {flick.tracks.map((track) => {
                       const region = flick.regions.find((item) => item.trackId === track.id);
                       const selectedHere = Boolean(region && region.id === selectedRegion);
-                      const spot = clipSpot(track.name);
+                      const spot = clipSpot(track.name, kind);
                       return (
                         <button
                           key={track.id}
@@ -1376,7 +1503,7 @@ export function CanvasScreen({
                   </div>
                   <div className="shelf-places">
                     {flick.tracks.map((track) => {
-                      const spot = clipSpot(track.name);
+                      const spot = clipSpot(track.name, kind);
                       return (
                         <button
                           key={track.id}
@@ -1486,7 +1613,19 @@ export function CanvasScreen({
           onKeyDown={(event) => nudgePane(event, "inspector")}
         />
         <aside className="inspector stack">
-          <p className="tiny muted">Canvas</p>
+          <section className="voice-box" aria-label="Voice">
+            <p className="rail-label">Voice</p>
+            {selected ? null : <p className="muted">Pick a clip on the timeline first.</p>}
+            <div className="row">
+              <button className="btn" disabled={Boolean(busy)} onClick={() => void runVoice()}>
+                Make voice
+              </button>
+              <button className="btn" type="button" disabled={Boolean(busy) && !recording} onClick={() => void toggleNarration()}>
+                {recording ? "Stop" : "Record narration"}
+              </button>
+            </div>
+            {voiceUrl ? <audio ref={voiceAudio} controls src={voiceUrl} aria-label="Play the voice" /> : null}
+          </section>
           <label className="stack">
             <span>Headline</span>
             <textarea
@@ -1529,7 +1668,7 @@ export function CanvasScreen({
           </label>
           <label className="stack">
             <span>Title stroke</span>
-            <p className="muted tiny">Saved on the flick. The paper pill keeps the words clear.</p>
+            <p className="muted tiny">A thicker stroke makes the title easier to read.</p>
             <span className="stroke-line">
               <input
                 type="range"
@@ -1763,34 +1902,9 @@ export function CanvasScreen({
                     ))}
                 </select>
               </label>
-              <label className="stack">
-                <span>Voice with</span>
-                <select className="field" value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>
-                  <option value="">Choose</option>
-                  {connections
-                    .filter((row) => row.kind === "elevenlabs" || row.kind === "minimax")
-                    .map((row) => (
-                      <option key={row.id} value={row.id}>
-                        {row.name}
-                        {row.connected ? "" : " (not tested)"}
-                      </option>
-                    ))}
-                </select>
-              </label>
               <div className="row">
                 <button className="btn" disabled={Boolean(busy)} onClick={() => void runLine()}>
                   Write line
-                </button>
-                <button className="btn" disabled={Boolean(busy)} onClick={() => void runVoice()}>
-                  Make voice
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  disabled={Boolean(busy) && !recording}
-                  onClick={() => void toggleNarration()}
-                >
-                  {recording ? "Stop" : "Record narration"}
                 </button>
               </div>
               <div className="row">
@@ -1859,12 +1973,11 @@ export function CanvasScreen({
             </div>
           ) : null}
           <p className="muted">
-            Export top picture keeps the top picture. Captions, headlines, ranks, and clip audio are not in that file. Its sound is the voice, the music, and any sound added to a cut. Export styled plays the clips as well.
+            Save vertical video makes the phone video, with the clips, the words, and the voice. Export top picture, under More, keeps only the top picture.
           </p>
           <button className="btn" onClick={() => setSavingTemplate(true)}>
             Save as template
           </button>
-          {flick.voiceRelative ? <p className="tiny muted">Voice is on this flick.</p> : null}
         </aside>
         <div
           className="pane-split pane-split-h"
@@ -1940,11 +2053,11 @@ export function CanvasScreen({
             </div>
             {flick.tracks.map((track) => {
               const clips = flick.clips.filter((clip) => clip.trackId === track.id).sort((a, b) => a.startSec - b.startSec);
-              const kind = laneKind(track.name);
+              const laneClass = laneKind(track.name);
               const laneSelected = selected?.trackId === track.id;
-              const plateName = track.name.trim() || "Track";
+              const plateName = laneTitle(track.name, kind);
               return (
-                <div className={laneSelected ? `track-row lane-${kind} is-selected` : `track-row lane-${kind}`} key={track.id} data-lane={plateName}>
+                <div className={laneSelected ? `track-row lane-${laneClass} is-selected` : `track-row lane-${laneClass}`} key={track.id} data-lane={plateName}>
                   <button
                     type="button"
                     className="lane-plate"
@@ -1992,6 +2105,21 @@ export function CanvasScreen({
                         <span className="clip-title">
                           {blockTitle(clip.label, media.find((item) => item.id === clip.mediaId)?.name)}
                         </span>
+                        {voiceUrl && clip.id === voiceOwner ? (
+                          <button
+                            type="button"
+                            className="cut-hear"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const node = voiceAudio.current;
+                              if (!node) return;
+                              node.currentTime = 0;
+                              void node.play();
+                            }}
+                          >
+                            Hear it
+                          </button>
+                        ) : null}
                         {clip.id === selectedClip ? <span className="cut-mark cut-out">Out</span> : null}
                         <span className="handle right" onPointerDown={(event) => beginTrim(event, clip, "out")} />
                       </button>
@@ -2003,7 +2131,7 @@ export function CanvasScreen({
             {headlineText || wordClips.length ? (
               <div className="track-row words-row">
                 <div className="lane-plate">
-                  <span className="lane-plate-name">Words</span>
+                  <span className="lane-plate-name">Captions</span>
                   <span className="lane-plate-role">On the phone</span>
                 </div>
                 <div
@@ -2020,19 +2148,19 @@ export function CanvasScreen({
                   {wordClips.map(({ clip, text }) => {
                     const track = flick.tracks.find((item) => item.id === clip.trackId);
                     const trackIndex = Math.max(0, wordTrackIds.indexOf(clip.trackId));
-                    const kind = laneKind(track?.name ?? "");
+                    const wordKind = laneKind(track?.name ?? "");
                     return (
                       <div
                         key={clip.id}
-                        className={clip.id === selectedClip ? `word-span word-${kind} on` : `word-span word-${kind}`}
-                        title={`${track?.name ?? "Caption"} · ${text}`}
+                        className={clip.id === selectedClip ? `word-span word-${wordKind} on` : `word-span word-${wordKind}`}
+                        title={`${laneTitle(track?.name ?? "", kind)} · ${text}`}
                         style={{
                           left: `${(clip.startSec / seconds) * 100}%`,
                           width: `${Math.max((clipDuration(clip) / seconds) * 100, 0)}%`,
                           top: (headlineText ? 30 : 8) + trackIndex * 26,
                         }}
                       >
-                        <span className="word-who">{track?.name.trim() || "Caption"}</span>
+                        <span className="word-who">{laneTitle(track?.name ?? "", kind)}</span>
                         <span className="word-line">
                           {text}
                           {clip.id === selectedClip ? ` · In ${clock(clip.inSec)} · Out ${clock(clip.outSec)}` : ""}
@@ -2044,7 +2172,15 @@ export function CanvasScreen({
               </div>
             ) : null}
           </div>
-          <p className="lane-note">A flick shows its own lanes: Rank and Loop, or Face and Gameplay, or Video alone.</p>
+          <p className="lane-note">
+            {kind === "ranking"
+              ? "These lanes are Clips, Background, and Captions."
+              : kind === "dual"
+                ? "These lanes are Face, Gameplay, and Captions."
+                : kind === "split"
+                  ? "These lanes are Top, Bottom, and Captions."
+                  : "This lane is the video. Captions sit under it."}
+          </p>
         </section>
       </div>
       {savingTemplate ? (

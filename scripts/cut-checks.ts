@@ -21,7 +21,7 @@ export const DUAL_LABELS = ["Face on top", "Gameplay on top", "Half", "Face larg
 
 /** The canvas button that runs export cut. The styled button keeps its own name. */
 export const CUT_BUTTON = "Export top picture";
-export const STYLED_BUTTON = "Export styled";
+export const STYLED_BUTTON = "Save vertical video";
 
 export const SHORT_LINKS = [
   {

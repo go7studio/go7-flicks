@@ -227,18 +227,23 @@ test("paper display locks the frame, play button, rank block, and playhead", () 
 
 test("the cut export button names the top picture it writes", () => {
   const screen = readFileSync(fileURLToPath(new URL("../src/ui/CanvasScreen.tsx", import.meta.url)), "utf8");
-  const start = screen.indexOf('onClick={() => void exportFlick("cut")}');
-  const end = screen.indexOf('onClick={() => void exportFlick("styled")}');
-  assert.ok(start >= 0 && end > start);
-  const cutButton = screen.slice(Math.max(0, start - 500), end);
-  assert.match(cutButton, /Export top picture/);
-  assert.equal(cutButton.includes("Export cut"), false);
+  assert.match(screen, /Save vertical video/);
+  assert.match(screen, /Export top picture/);
+  assert.equal(screen.includes("Export styled"), false);
+  assert.equal(screen.includes("Export cut"), false);
   assert.match(screen, /exportFlick\("cut"\)/);
   assert.match(screen, /exportFlick\("styled"\)/);
-  const styled = screen.slice(end, end + 180);
-  assert.match(styled, />\s*Export styled\s*</);
-  assert.equal(styled.includes("busy ||"), false);
+  assert.match(screen, /YouTube title/);
+  assert.match(screen, /YouTube description/);
+  assert.match(screen, /Put on the ranking/);
+  assert.match(screen, /Add to the ranking/);
+  assert.match(screen, /Use as the background/);
+  assert.match(screen, /Add to the background/);
+  assert.match(screen, /Use as the video/);
+  assert.match(screen, /Add to the video/);
+  assert.equal(screen.includes("Encoder: {encoder}"), false);
   assert.match(screen, /If that track is already full, this adds a cut at the end/);
+  assert.match(screen, /Write a line first/);
 });
 
 test("spokenLine drops a raw file stem and the media file name", () => {

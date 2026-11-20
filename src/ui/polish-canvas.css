@@ -8,7 +8,7 @@
   font-family: "Segoe UI", "Avenir Next", sans-serif;
 }
 
-/* Toolbar: quiet leave links, one gold action. Export styled stays the gold button. */
+/* Toolbar: quiet leave links, one gold action. Save vertical video stays the gold button. */
 .app.canvas-screen .toolbar {
   min-height: 52px;
   padding: 8px 14px;
@@ -85,6 +85,102 @@
   background: #d4a433;
   color: #1c1915;
   border-color: #c9a15b;
+}
+
+.app.canvas-screen .toolbar-more {
+  position: relative;
+}
+
+.app.canvas-screen .toolbar-more-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+  padding: 12px;
+  background: #fffdf8;
+  border: 1px solid #e6dfd2;
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(36, 28, 20, 0.12);
+}
+
+.app.canvas-screen .toolbar-more-menu .btn {
+  min-height: 40px;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
+  border-radius: 12px;
+}
+
+.app.canvas-screen .upload-card {
+  margin: 8px 16px 0;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fffdf8;
+  border: 1px solid #e6dfd2;
+  border-radius: 14px;
+}
+
+.app.canvas-screen .upload-card .saved-name {
+  margin: 0;
+  color: #1c1915;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.app.canvas-screen .upload-row {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.app.canvas-screen .upload-box {
+  min-height: 40px;
+  max-height: 72px;
+  margin: 0;
+  resize: none;
+}
+
+.app.canvas-screen .voice-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #fffdf8;
+  border: 1px solid #e6dfd2;
+  border-radius: 14px;
+}
+
+.app.canvas-screen .voice-box .rail-label {
+  margin: 0;
+  color: #1c1915;
+  font-weight: 750;
+}
+
+.app.canvas-screen .voice-box audio {
+  width: 100%;
+  height: 32px;
+}
+
+.app.canvas-screen .cut-hear {
+  position: absolute;
+  right: 14px;
+  top: 4px;
+  z-index: 4;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid #c9a15b;
+  background: #e2b340;
+  color: #1c1915;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .app.canvas-screen .toolbar .btn:focus-visible,

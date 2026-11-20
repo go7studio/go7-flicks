@@ -686,7 +686,7 @@ async function runCut(cdp: Cdp) {
 }
 
 function slotOpen(name: string | undefined): boolean {
-  return !name || name === "Empty slot" || name === "Add a clip";
+  return !name || name === "Empty slot" || name === "Add a clip" || name === "Choose a clip";
 }
 
 async function runScan(cdp: Cdp, dir: string) {

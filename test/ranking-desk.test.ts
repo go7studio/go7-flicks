@@ -72,11 +72,13 @@ test("the ranking desk says what find clips and which clip do", () => {
   const ranking = read("../src/ui/RankingStudio.tsx");
   const which = read("../src/ui/WhichClip.tsx");
   assert.equal(SUBJECT_CLIP_COUNT, 3);
-  assert.match(ranking, /This searches for the subject you typed and fills empty slots with up to three short clips, and it does not use Cursor or Codex\./);
-  assert.match(which, /This reads the clips already on the desk and answers through Cursor or Codex\./);
-  assert.match(ranking, /Keeps this order and these words, and leaves the clips off the template\./);
-  assert.match(ranking, /Add a clip/);
-  assert.match(ranking, /Clears this desk\. Rankings already saved stay in the channel\./);
+  assert.match(ranking, /Type a topic\. This finds up to three short clips\./);
+  assert.match(which, /This looks at the clips already here and asks the account you connected\./);
+  assert.match(ranking, /Saves this order and these words\. The video files stay off it\./);
+  assert.match(ranking, /Choose a clip/);
+  assert.match(ranking, /Add another slot/);
+  assert.match(ranking, /Starts over\. Rankings you already saved stay in this channel\./);
+  assert.equal(ranking.includes("Add a clip"), false);
   assert.equal(ranking.includes("Empty slot"), false);
   assert.equal((ranking.match(/<video/g) ?? []).length, 2);
 });

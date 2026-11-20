@@ -297,16 +297,39 @@ async function exportFile(kind: "cut" | "styled", dir: string, flickId: string, 
   return { ok: true as const, message: "Export ready.", outputPath };
 }
 
-async function importChosen(dir: string, mode: "copy" | "link", kind: "video" | "audio") {
+function windowFor(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
+}
+
+/** Keep the native file window in front of this app. On Windows it otherwise opens behind the window and looks like a silent failure. */
+async function withDialogInFront<T>(parent: BrowserWindow | null, run: (parent: BrowserWindow) => Promise<T>): Promise<T> {
+  if (!parent) throw new Error("Could not open the file window. The app window is not open.");
+  if (parent.isMinimized()) parent.restore();
+  parent.show();
+  parent.focus();
+  const wasOnTop = parent.isAlwaysOnTop();
+  parent.setAlwaysOnTop(true);
   try {
-    const picked = await dialog.showOpenDialog({
-      properties: ["openFile"],
-      filters: [
-        kind === "audio"
-          ? { name: "Audio", extensions: ["mp3", "m4a", "wav", "aac"] }
-          : { name: "Video", extensions: ["mp4", "mov", "m4v", "webm", "mkv"] },
-      ],
-    });
+    return await run(parent);
+  } finally {
+    if (!wasOnTop) parent.setAlwaysOnTop(false);
+    if (!parent.isDestroyed()) parent.focus();
+  }
+}
+
+async function importChosen(dir: string, mode: "copy" | "link", kind: "video" | "audio", parent: BrowserWindow | null) {
+  try {
+    const picked = await withDialogInFront(parent, (window) =>
+      dialog.showOpenDialog(window, {
+        title: kind === "audio" ? "Choose a sound" : "Choose a clip",
+        properties: ["openFile"],
+        filters: [
+          kind === "audio"
+            ? { name: "Audio", extensions: ["mp3", "m4a", "wav", "aac"] }
+            : { name: "Video", extensions: ["mp4", "mov", "m4v", "webm", "mkv"] },
+        ],
+      }),
+    );
     if (picked.canceled || !picked.filePaths[0]) return { ok: false as const, message: "No file chosen." };
     const gpu = await probeGpu();
     if (!gpu.ffmpegPath) throw new Error("ffmpeg is not available to read that file.");
@@ -324,25 +347,38 @@ async function importChosen(dir: string, mode: "copy" | "link", kind: "video" | 
 function registerIpc(): void {
   ipcMain.handle("gpu:probe", () => probeGpu());
   ipcMain.handle("recent:list", () => recentChannels());
-  ipcMain.handle("dialog:directory", async () => {
-    const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+  ipcMain.handle("dialog:directory", async (event) => {
+    const result = await withDialogInFront(windowFor(event), (window) =>
+      dialog.showOpenDialog(window, { properties: ["openDirectory", "createDirectory"] }),
+    );
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
-  ipcMain.handle("dialog:video", async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openFile"],
-      filters: [{ name: "Video", extensions: ["mp4", "mov", "m4v", "webm", "mkv"] }],
-    });
+  ipcMain.handle("dialog:video", async (event) => {
+    const result = await withDialogInFront(windowFor(event), (window) =>
+      dialog.showOpenDialog(window, {
+        title: "Choose a clip",
+        properties: ["openFile"],
+        filters: [{ name: "Video", extensions: ["mp4", "mov", "m4v", "webm", "mkv"] }],
+      }),
+    );
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
-  ipcMain.handle("dialog:save", async (_event, defaultPath: string) => {
+  ipcMain.handle("dialog:save", async (event, defaultPath: string) => {
     const target = path.normalize(String(defaultPath ?? ""));
-    if (path.isAbsolute(target)) fs.mkdirSync(path.dirname(target), { recursive: true });
-    const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
-    const result = await dialog.showSaveDialog(parent, {
-      defaultPath: target,
-      filters: [{ name: "MP4", extensions: ["mp4"] }],
-    });
+    if (!target) throw new Error("Could not open the save window. There is no file name yet.");
+    try {
+      if (path.isAbsolute(target)) fs.mkdirSync(path.dirname(target), { recursive: true });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "The save folder could not be created.";
+      throw new Error(`Could not open the save window. ${reason}`);
+    }
+    const result = await withDialogInFront(windowFor(event), (window) =>
+      dialog.showSaveDialog(window, {
+        title: "Save vertical video",
+        defaultPath: target,
+        filters: [{ name: "MP4", extensions: ["mp4"] }],
+      }),
+    );
     return result.canceled ? null : result.filePath ?? null;
   });
   ipcMain.handle("channel:create", async (_event, parent: string, name: string) => {
@@ -433,8 +469,8 @@ function registerIpc(): void {
       return fail(error);
     }
   });
-  ipcMain.handle("media:import", async (_event, dir: string, mode: "copy" | "link") =>
-    importChosen(dir, mode, "video"),
+  ipcMain.handle("media:import", async (event, dir: string, mode: "copy" | "link") =>
+    importChosen(dir, mode, "video", windowFor(event)),
   );
   ipcMain.handle("media:find", async (_event, dir: string, subject: string, count?: number) => {
     const cleanups: Array<() => void> = [];
@@ -533,7 +569,7 @@ function registerIpc(): void {
       cleanup();
     }
   });
-  ipcMain.handle("media:importAudio", async (_event, dir: string) => importChosen(dir, "copy", "audio"));
+  ipcMain.handle("media:importAudio", async (event, dir: string) => importChosen(dir, "copy", "audio", windowFor(event)));
   ipcMain.handle("media:stage", async (_event, dir: string, assetId: string) => {
     try {
       const channel = watch(dir);

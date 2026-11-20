@@ -75,13 +75,13 @@ export function WhichClip({
   return (
     <section className="which-clip" aria-label="Which clip">
       <p className="rail-label">Which clip</p>
-      <p className="desk-note">This reads the clips already on the desk and answers through Cursor or Codex.</p>
+      <p className="desk-note">This looks at the clips already here and asks the account you connected.</p>
       {rows === null ? <p className="muted tiny">Checking accounts…</p> : null}
       {rows && chat.length === 0 ? (
         <p className="muted">
           {voiceOnly(rows)
-            ? "ElevenLabs and MiniMax stay voice. Connect Claude, Codex, Grok, or Cursor, then test that row."
-            : "No chat account is connected. Test Claude, Codex, Grok, or Cursor on Connections. This does not invent a ranking."}
+            ? "Voice accounts stay for voice. Connect a chat account, then test it."
+            : "No chat account is connected. Open Connections and test a chat account. This does not invent a ranking."}
         </p>
       ) : null}
       {chosen ? (
@@ -100,8 +100,8 @@ export function WhichClip({
           ) : (
             <p className="tiny muted">Asks {chosen.name}</p>
           )}
-          {!shown.length ? <p className="muted">Add a clip on this flick first. This looks at clips already here.</p> : null}
-          {clips.length > shown.length ? <p className="tiny muted">Using the first 12 clips on this flick.</p> : null}
+          {!shown.length ? <p className="muted">Choose a clip first. This looks at clips already here.</p> : null}
+          {clips.length > shown.length ? <p className="tiny muted">Using the first 12 clips already here.</p> : null}
           <div className="row">
             <button className="btn" type="button" disabled={!ready} onClick={() => void ask("pick")}>
               Ask which clip
