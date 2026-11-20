@@ -62,4 +62,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Go7 Flicks ${version}" \
-            --notes "Windows installer attached. The file is unsigned, so Windows says unknown publisher. Take it only from this release. Run it, then Library, New channel, and pick a folder."
+            --notes "Windows installer attached. The file is unsigned, so Windows says unknown publisher. Take it only from this release. Run it, then on Home start Video Ranking or Dual video. Add clips that are already on the PC, then Open timeline and pick a folder."

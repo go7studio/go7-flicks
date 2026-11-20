@@ -400,7 +400,7 @@ Still refused, in that same future: embedding the Remotion Timeline, setting `cr
 
 ## 9. Drew and Wes on Windows
 
-Both boys run Windows. The public page is `https://go7studio.com/products/go7-flicks`. Anyone with the link can open it, including a friend who is not in the family. No Go7 account and no GitHub login. Another PC installs from `Go7Flicks-Setup-<version>.exe`. `npm run dist:win` builds that file. The page and the public setup file are not live yet. No Windows build has been run from this checkout, and the exe is not in the repo. The short steps they follow are also in `WINDOWS.md`.
+Both boys run Windows. The public page is `https://go7studio.com/products/go7-flicks`. Anyone with the link can open it, including a friend who is not in the family. No Go7 account and no GitHub login. Another PC installs from `Go7Flicks-Setup-<version>.exe`. `npm run dist:win` builds that file. The page and the public setup file are not live yet. This checkout has built `release\Go7Flicks-Setup-0.1.0.exe`. That file is unsigned, it is not in git, and it is not posted. The short steps they follow are also in `WINDOWS.md`.
 
 What is already in the repo, in `package.json`:
 
@@ -409,10 +409,10 @@ What is already in the repo, in `package.json`:
 - `npm run dist:win` is the command to use. It runs the build, then `package:win`.
 - App id: `com.go7studio.flicks`. Product name: Go7Flicks. Executable name: Go7Flicks.
 - NSIS is not one-click. It is per user, it can change the install folder, and it adds a desktop shortcut and a Start menu shortcut. Uninstall does not delete app data.
-- The installer file the script is set to write is `release/Go7Flicks-Setup-0.1.0.exe`. That file is not in this repo from a Windows run. Wine is not installed on this Mac, so this checkout did not produce the exe.
+- The installer file the script writes is `release/Go7Flicks-Setup-0.1.0.exe`. A Windows run on this checkout produced that file. It is unsigned and not committed. `release/` stays gitignored.
 - The Windows icon is already `build/icon.ico`. `package.json` sets `build.win.icon` to that file. `build/icon.svg`, `build/icon.png`, and `build/icon.icns` are in the repo for the Mac package.
 
-Drew, on his PC: install Node, clone `https://github.com/SteveMLC/go7-flicks.git`, run `npm install`, then `npm run dist:win`. Run `release\Go7Flicks-Setup-0.1.0.exe` and open Go7Flicks. Library, New channel, pick a folder on that PC. From home, open Video Ranking or Split, add clips that are already on the PC, then Open timeline. The encoder line on the canvas should read `h264_nvenc`, `h264_qsv`, `h264_amf`, or `software (libx264)`. Export cut or Export styled. Styled export uses Remotion `hardwareAcceleration: "if-possible"`, 8 Mbps, and no crf. On this Mac that encoder is `h264_videotoolbox`. On Windows with NVIDIA it is `h264_nvenc`. Intel QSV and AMD AMF are not in Remotion's styled path. A pasted link is Get. The app downloads it into the channel.
+Drew, on his PC: install Node, clone `https://github.com/SteveMLC/go7-flicks.git`, run `npm install`, then `npm run dist:win`. Run `release\Go7Flicks-Setup-0.1.0.exe` and open Go7Flicks. Library, New channel, pick a folder on that PC. From home, open Video Ranking or Dual video, add clips that are already on the PC, then Open timeline. The encoder line on the canvas should read `h264_nvenc`, `h264_qsv`, `h264_amf`, or `software (libx264)`. Export cut or Export styled. Styled export uses Remotion `hardwareAcceleration: "if-possible"`, 8 Mbps, and no crf. On this Mac that encoder is `h264_videotoolbox`. On Windows with NVIDIA it is `h264_nvenc`. Intel QSV and AMD AMF are not in Remotion's styled path. A pasted link is Get. The app downloads it into the channel.
 
 Wes, on his PC: open `https://go7studio.com/products/go7-flicks`. He can send that link to a friend. He does not clone the repo or run `dist:win`. When the setup file is posted, he downloads `Go7Flicks-Setup-<version>.exe` from that page. Windows says unknown publisher, so he takes the file only from that page, then chooses More info, then Run anyway. The page and the file are not live yet. Until the file is posted, an installer from a Windows build, copied onto his machine, installs the same app. His Connections and his saved templates stay on his install. Drew’s stay on Drew’s.
 

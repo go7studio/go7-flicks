@@ -4,7 +4,7 @@ The link for another PC, including a friend who is not in the family, is https:/
 
 Another PC installs Go7 Flicks by running `Go7Flicks-Setup-<version>.exe`. Until the public file exists, the exe comes from a Windows build. `npm run dist:win` is the command that builds it. When `go7studio/go7-flicks` is public, the page button should point at `https://github.com/go7studio/go7-flicks/releases/latest`. The product path is in `PRODUCT-BIBLE.md` section 9.
 
-This checkout has not published that installer. `release\` is not in git. The script writes `release\Go7Flicks-Setup-0.1.0.exe` for version 0.1.0.
+This checkout has built `release\Go7Flicks-Setup-0.1.0.exe` and has not published it. `release\` is not in git. The file is unsigned.
 
 ## Already in the repo
 
@@ -46,7 +46,7 @@ Proper git folder on DadOffice is `D:\GitHub\go7-flicks` (same pattern as `D:\Gi
 2. Run `npm run dist:win`.
 3. Run `release\Go7Flicks-Setup-0.1.0.exe` and open Go7Flicks.
 4. Library, New channel, pick a folder. That folder is the channel.
-5. Home, Video Ranking or Split. Add clips that are already on this PC. Open timeline.
+5. Home, Video Ranking or Dual video. Add clips that are already on this PC. Open timeline. It asks for a folder on the first one.
 6. The encoder line should read `h264_nvenc`, `h264_qsv`, `h264_amf`, or `software (libx264)`. Styled export on an NVIDIA PC uses `h264_nvenc`. QSV and AMF are not used on that styled path.
 7. Export cut or Export styled. Styled export uses bitrate 8M and does not set crf.
 8. Paste a link and press Get. The clip is saved in the channel.
