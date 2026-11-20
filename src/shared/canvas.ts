@@ -206,6 +206,61 @@ export function storedLineColor(value: string | undefined): string | undefined {
   return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : undefined;
 }
 
+export const OVERLAY_PLACES = ["top", "middle", "bottom"] as const;
+export type OverlayPlace = (typeof OVERLAY_PLACES)[number];
+
+export const RANK_SIZE_MIN = 72;
+export const RANK_SIZE_MAX = 220;
+export const RANK_SIZE_DEFAULT = 132;
+export const RANK_COLOR_DEFAULT = "#e2b340";
+
+export function overlayPlaceOf(value: string | undefined, fallback: OverlayPlace): OverlayPlace {
+  return (OVERLAY_PLACES as readonly string[]).includes(value ?? "") ? (value as OverlayPlace) : fallback;
+}
+
+/** The default place is omitted so older rankings stay as they are. */
+export function storedOverlayPlace(value: string | undefined, fallback: OverlayPlace): OverlayPlace | undefined {
+  if (!(OVERLAY_PLACES as readonly string[]).includes(value ?? "")) return undefined;
+  return value === fallback ? undefined : (value as OverlayPlace);
+}
+
+export function rankSizeOf(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return RANK_SIZE_DEFAULT;
+  return Math.min(RANK_SIZE_MAX, Math.max(RANK_SIZE_MIN, Math.round(value)));
+}
+
+export function storedRankSize(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const next = rankSizeOf(value);
+  return next === RANK_SIZE_DEFAULT ? undefined : next;
+}
+
+export function rankColorOf(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : RANK_COLOR_DEFAULT;
+}
+
+export function storedRankColor(value: string | undefined): string | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (!/^#[0-9a-fA-F]{6}$/.test(trimmed)) return undefined;
+  return trimmed.toLowerCase() === RANK_COLOR_DEFAULT ? undefined : trimmed;
+}
+
+/** Dark letters on a light badge. Light letters on a dark badge. */
+export function readableOn(value: string | undefined): string {
+  return lightOnPaper(rankColorOf(value).toLowerCase()) ? "#1c1915" : "#fffdf8";
+}
+
+/** Where a rank badge or a caption sits on a 1080×1920 picture. */
+export function overlayFrameStyle(
+  place: OverlayPlace,
+  kind: "rank" | "line",
+): { left: string; transform: string; top?: number | string; bottom?: number | string } {
+  if (place === "middle") return { left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
+  if (place === "bottom") return { left: "50%", bottom: kind === "rank" ? "8%" : "6%", transform: "translateX(-50%)" };
+  return { left: "50%", top: kind === "rank" ? 36 : "8%", transform: "translateX(-50%)" };
+}
+
 export function warmthOf(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   return Math.min(WARMTH_MAX, Math.max(WARMTH_MIN, Math.round(value)));
@@ -270,6 +325,10 @@ export function flickFromTemplate(template: Template, name: string): Flick {
     titleFont: template.titleFont,
     lineColor: template.lineColor,
     lineSize: template.lineSize,
+    rankSize: template.rankSize,
+    rankColor: template.rankColor,
+    rankPlace: template.rankPlace,
+    linePlace: template.linePlace,
     pictureWarmth: template.pictureWarmth,
   };
   if (template.id !== "builtin-ranking") return flick;
@@ -310,6 +369,10 @@ export function templateFromFlick(flick: Flick, name: string, id = uid()): Templ
     titleFont: storedTitleFont(flick.titleFont),
     lineColor: storedLineColor(flick.lineColor),
     lineSize: storedLineSize(flick.lineSize),
+    rankSize: storedRankSize(flick.rankSize),
+    rankColor: storedRankColor(flick.rankColor),
+    rankPlace: storedOverlayPlace(flick.rankPlace, "top"),
+    linePlace: storedOverlayPlace(flick.linePlace, "bottom"),
     pictureWarmth: storedWarmth(flick.pictureWarmth),
   };
 }

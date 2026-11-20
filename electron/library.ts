@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { builtinTemplates, flickFromTemplate, storedLineColor, storedLineSize, storedTitleFont, storedWarmth, templateFromFlick } from "../src/shared/canvas";
+import { builtinTemplates, flickFromTemplate, storedLineColor, storedLineSize, storedOverlayPlace, storedRankColor, storedRankSize, storedTitleFont, storedWarmth, templateFromFlick } from "../src/shared/canvas";
 import {
   defaultsFor,
   subscriptionRefusal,
@@ -399,6 +399,10 @@ function sanitizeFlick(flick: Flick): Flick {
     titleFont: storedTitleFont(flick.titleFont),
     lineColor: storedLineColor(flick.lineColor),
     lineSize: storedLineSize(flick.lineSize),
+    rankSize: storedRankSize(flick.rankSize),
+    rankColor: storedRankColor(flick.rankColor),
+    rankPlace: storedOverlayPlace(flick.rankPlace, "top"),
+    linePlace: storedOverlayPlace(flick.linePlace, "bottom"),
     pictureWarmth: storedWarmth(flick.pictureWarmth),
     regions: flick.regions ?? [],
     tracks: flick.tracks ?? [],

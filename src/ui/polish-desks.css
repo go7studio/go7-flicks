@@ -727,10 +727,39 @@
   background: #f8f1e3;
 }
 
-.studio .more-panel {
+.studio .more-panel,
+.studio .look-panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.studio .look-places {
+  display: flex;
+  gap: 8px;
+}
+
+.studio .look-places .count-btn {
+  flex: 1;
+  min-height: 40px;
+}
+
+.studio .look-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.studio .look-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #e6dfd2;
+}
+
+.studio .look-swatch.on {
+  outline: 2px solid #1c1915;
+  outline-offset: 2px;
 }
 
 .studio .desk-play {

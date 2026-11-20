@@ -104,6 +104,12 @@ export type Flick = {
   titleFont?: string;
   lineColor?: string;
   lineSize?: number;
+  /** Rank badge size on the 1080×1920 picture. */
+  rankSize?: number;
+  rankColor?: string;
+  rankPlace?: "top" | "middle" | "bottom";
+  /** Where the caption line sits on the picture. */
+  linePlace?: "top" | "middle" | "bottom";
   pictureWarmth?: number;
 };
 
@@ -140,6 +146,10 @@ export type Template = {
   titleFont?: string;
   lineColor?: string;
   lineSize?: number;
+  rankSize?: number;
+  rankColor?: string;
+  rankPlace?: "top" | "middle" | "bottom";
+  linePlace?: "top" | "middle" | "bottom";
   pictureWarmth?: number;
 };
 

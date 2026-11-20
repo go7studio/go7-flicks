@@ -5,18 +5,31 @@ import {
   assignLinesInOrder,
   builtinTemplates,
   flickFromTemplate,
-  inkOnPaper,
   importedLines,
+  LINE_SIZE_MAX,
+  LINE_SIZE_MIN,
+  lineColorOf,
   lineSizeOf,
+  overlayPlaceOf,
   playbackOrder,
+  RANK_SIZE_DEFAULT,
+  RANK_SIZE_MAX,
+  RANK_SIZE_MIN,
+  rankColorOf,
+  rankSizeOf,
   rankingClipRange,
+  readableOn,
   shuffleIds,
   slotRank,
   spokenLine,
   storedLineColor,
   storedLineSize,
+  storedOverlayPlace,
+  storedRankColor,
+  storedRankSize,
   storedTitleFont,
   storedWarmth,
+  type OverlayPlace,
   titleFontFamily,
   titleFontOf,
   warmthOf,
@@ -28,7 +41,7 @@ import { round3, uid, type Clip, type Flick, type Template } from "../shared/mod
 import type { ResolvedMedia } from "../shared/api";
 import { captionFromFile, headlineFromFlick, openDeskFlick, titleFromClip } from "../remotion/FlickComposition";
 import type { AssistClip } from "../shared/assist";
-import { fitRankingSlots, formatClock, phoneHeadline, playbackSentence, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../shared/desk";
+import { fitRankingSlots, formatClock, playbackSentence, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../shared/desk";
 import { clipLink } from "../shared/link";
 import { placeFoundClips, SHORT_CLIP_SEC, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
 import { whenPhrase } from "../shared/when";
@@ -170,6 +183,10 @@ type RankingDraft = {
   font?: string;
   lineSize?: number;
   lineColor?: string;
+  rankSize?: number;
+  rankColor?: string;
+  rankPlace?: OverlayPlace;
+  linePlace?: OverlayPlace;
   warmth?: number;
   pasted?: string;
   subject?: string;
@@ -257,6 +274,10 @@ export function RankingStudio({
   const [font, setFont] = useState("Segoe UI");
   const [lineSize, setLineSize] = useState(72);
   const [lineColor, setLineColor] = useState("#ffffff");
+  const [rankSize, setRankSize] = useState(RANK_SIZE_DEFAULT);
+  const [rankColor, setRankColor] = useState("#e2b340");
+  const [rankPlace, setRankPlace] = useState<OverlayPlace>("top");
+  const [linePlace, setLinePlace] = useState<OverlayPlace>("bottom");
   const [warmth, setWarmth] = useState(0);
   const [pasted, setPasted] = useState("");
   const [subject, setSubject] = useState("");
@@ -271,6 +292,7 @@ export function RankingStudio({
   const [recipes, setRecipes] = useState<Template[]>([]);
   const [clipsHeight, setClipsHeight] = useState<number | null>(readRankClips);
   const [more, setMore] = useState(false);
+  const [look, setLook] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playKind, setPlayKind] = useState<"ranking" | "clip" | null>(null);
   const [nowSec, setNowSec] = useState(0);
@@ -422,6 +444,10 @@ export function RankingStudio({
           setFont(titleFontOf(flick.titleFont));
           setLineSize(lineSizeOf(flick.lineSize));
           setLineColor(flick.lineColor && /^#[0-9a-fA-F]{6}$/.test(flick.lineColor) ? flick.lineColor : "#ffffff");
+          setRankSize(rankSizeOf(flick.rankSize));
+          setRankColor(rankColorOf(flick.rankColor));
+          setRankPlace(overlayPlaceOf(flick.rankPlace, "top"));
+          setLinePlace(overlayPlaceOf(flick.linePlace, "bottom"));
           setWarmth(warmthOf(flick.pictureWarmth));
           setSlots(slotsFromFlick(flick, result.media ?? []));
           setPlayback("listed");
@@ -448,6 +474,10 @@ export function RankingStudio({
       if (typeof stored.font === "string") setFont(stored.font);
       if (typeof stored.lineSize === "number") setLineSize(stored.lineSize);
       if (typeof stored.lineColor === "string") setLineColor(stored.lineColor);
+      if (typeof stored.rankSize === "number") setRankSize(stored.rankSize);
+      if (typeof stored.rankColor === "string") setRankColor(stored.rankColor);
+      if (stored.rankPlace === "top" || stored.rankPlace === "middle" || stored.rankPlace === "bottom") setRankPlace(stored.rankPlace);
+      if (stored.linePlace === "top" || stored.linePlace === "middle" || stored.linePlace === "bottom") setLinePlace(stored.linePlace);
       if (typeof stored.warmth === "number") setWarmth(stored.warmth);
       if (typeof stored.pasted === "string") setPasted(stored.pasted);
       if (typeof stored.subject === "string") setSubject(stored.subject);
@@ -503,6 +533,10 @@ export function RankingStudio({
         font,
         lineSize,
         lineColor,
+        rankSize,
+        rankColor,
+        rankPlace,
+        linePlace,
         warmth,
         pasted,
         subject,
@@ -530,6 +564,10 @@ export function RankingStudio({
     font,
     lineSize,
     lineColor,
+    rankSize,
+    rankColor,
+    rankPlace,
+    linePlace,
     warmth,
     pasted,
     subject,
@@ -983,6 +1021,10 @@ export function RankingStudio({
     base.titleFont = storedTitleFont(font);
     base.lineColor = storedLineColor(lineColor);
     base.lineSize = storedLineSize(lineSize);
+    base.rankSize = storedRankSize(rankSize);
+    base.rankColor = storedRankColor(rankColor);
+    base.rankPlace = storedOverlayPlace(rankPlace, "top");
+    base.linePlace = storedOverlayPlace(linePlace, "bottom");
     base.pictureWarmth = storedWarmth(warmth);
     const result = await window.flicks!.saveTemplate(base, title);
     setMessage(result.ok ? `Saved “${title}”. This order and these words can run again.` : result.message ?? "Could not save that template.");
@@ -1002,6 +1044,10 @@ export function RankingStudio({
     setFont(titleFontOf(template.titleFont));
     setLineSize(lineSizeOf(template.lineSize));
     setLineColor(template.lineColor && /^#[0-9a-fA-F]{6}$/.test(template.lineColor) ? template.lineColor : "#ffffff");
+    setRankSize(rankSizeOf(template.rankSize));
+    setRankColor(rankColorOf(template.rankColor));
+    setRankPlace(overlayPlaceOf(template.rankPlace, "top"));
+    setLinePlace(overlayPlaceOf(template.linePlace, "bottom"));
     setWarmth(warmthOf(template.pictureWarmth));
     const ranked = template.clips.filter((clip) => clip.label !== "Loop" && clip.trackId !== "track-bottom");
     if (!ranked.length) return;
@@ -1343,6 +1389,10 @@ export function RankingStudio({
         titleFont: storedTitleFont(font),
         lineColor: storedLineColor(lineColor),
         lineSize: storedLineSize(lineSize),
+        rankSize: storedRankSize(rankSize),
+        rankColor: storedRankColor(rankColor),
+        rankPlace: storedOverlayPlace(rankPlace, "top"),
+        linePlace: storedOverlayPlace(linePlace, "bottom"),
         pictureWarmth: storedWarmth(warmth),
       });
       const flick: Flick = plan.id
@@ -1392,7 +1442,11 @@ export function RankingStudio({
     ];
   });
   const phoneCaption = spokenLine(slot?.title, slot?.mediaName);
-  const headlineOnPhone = phoneHeadline(headline);
+  const headlineOnPhone = headline.replace(/\r/g, "").trim();
+  const rankPx = rankSizeOf(rankSize);
+  const captionPx = lineSizeOf(lineSize);
+  const rankSwatch = rankColorOf(rankColor);
+  const captionSwatch = lineColorOf(lineColor);
   const sequence = playbackOrder(slots, playback, orderIds).filter((item) => item.previewUrl);
   const playAt = new Map(sequence.map((item, index) => [item.id, index + 1]));
   const swatch = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#e2b340";
@@ -1488,6 +1542,7 @@ export function RankingStudio({
               role={slot?.mediaId ? "button" : undefined}
               tabIndex={slot?.mediaId ? 0 : undefined}
               aria-label={slot?.mediaId ? (playing && playKind === "ranking" ? "Pause the ranking" : "Play the ranking") : undefined}
+              style={{ ["--rank-size" as string]: String(rankPx), ["--line-size" as string]: String(captionPx) }}
             >
               {slot?.previewUrl ? (
                 <>
@@ -1518,28 +1573,31 @@ export function RankingStudio({
                 <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Paste a link or upload a file."}</p>
               )}
               {wash ? <div className="phone-warmth" style={{ background: wash }} /> : null}
+              {showRank ? (
+                <div
+                  className={`phone-rank place-${rankPlace}`}
+                  style={{ fontFamily: titleFontFamily(font), background: rankSwatch, color: readableOn(rankSwatch) }}
+                >
+                  {slot?.rank}
+                </div>
+              ) : null}
               {headlineOnPhone ? (
-                <div className="phone-title" style={{ fontFamily: titleFontFamily(font) }}>
+                <div
+                  className={showRank && rankPlace === "top" ? "phone-title under-rank" : "phone-title"}
+                  style={{
+                    fontFamily: titleFontFamily(font),
+                    top:
+                      showRank && rankPlace === "top"
+                        ? `calc(${36 + Math.round(rankPx * 1.9) + 16} * 100cqh / 1920)`
+                        : undefined,
+                  }}
+                >
                   {paint(headlineOnPhone, swatch, accentWords)}
                 </div>
               ) : null}
               {showCaptions && phoneCaption ? (
-                <div
-                  className="phone-clip"
-                  style={{
-                    fontFamily: titleFontFamily(font),
-                    color: inkOnPaper(lineColor),
-                    fontSize: Math.min(18, Math.max(14, Math.round(lineSizeOf(lineSize) * 0.22))),
-                  }}
-                >
+                <div className={`phone-clip place-${linePlace}`} style={{ fontFamily: titleFontFamily(font), color: captionSwatch }}>
                   {phoneCaption}
-                </div>
-              ) : null}
-            </div>
-            <div className="phone-side">
-              {showRank ? (
-                <div className="phone-rank" style={{ fontFamily: titleFontFamily(font) }}>
-                  {slot?.rank}
                 </div>
               ) : null}
             </div>
@@ -1611,6 +1669,31 @@ export function RankingStudio({
               <button type="button" className={showCaptions ? "switch on" : "switch"} role="switch" aria-checked={showCaptions} aria-label="Show captions" onClick={() => setShowCaptions((value) => !value)} />
             </div>
           </div>
+          <button type="button" className="more-toggle" aria-expanded={look} onClick={() => setLook((value) => !value)}>
+            Look
+          </button>
+          {look ? (
+            <LookPanel
+              showRank={showRank}
+              showCaptions={showCaptions}
+              rankSize={rankPx}
+              captionSize={captionPx}
+              rankPlace={rankPlace}
+              linePlace={linePlace}
+              rankColor={rankColor}
+              captionColor={lineColor}
+              caption={slot?.title ?? ""}
+              onShowRank={() => setShowRank((value) => !value)}
+              onShowCaptions={() => setShowCaptions((value) => !value)}
+              onRankSize={(size) => setRankSize(rankSizeOf(size))}
+              onCaptionSize={(size) => setLineSize(lineSizeOf(size))}
+              onRankPlace={setRankPlace}
+              onLinePlace={setLinePlace}
+              onRankColor={setRankColor}
+              onCaptionColor={setLineColor}
+              onCaption={(value) => patch({ title: value })}
+            />
+          ) : null}
           <button type="button" className="more-toggle" aria-expanded={more} onClick={() => setMore((value) => !value)}>
             More
           </button>
@@ -1801,6 +1884,164 @@ function ClockField({ label, value, onCommit }: { label: string; value: number; 
           onCommit(Math.max(0, next));
         }}
       />
+    </label>
+  );
+}
+
+const LOOK_SWATCHES = ["#e2b340", "#ffffff", "#1c1915", "#e23b3b", "#2a6fdb"] as const;
+
+function LookPanel({
+  showRank,
+  showCaptions,
+  rankSize,
+  captionSize,
+  rankPlace,
+  linePlace,
+  rankColor,
+  captionColor,
+  caption,
+  onShowRank,
+  onShowCaptions,
+  onRankSize,
+  onCaptionSize,
+  onRankPlace,
+  onLinePlace,
+  onRankColor,
+  onCaptionColor,
+  onCaption,
+}: {
+  showRank: boolean;
+  showCaptions: boolean;
+  rankSize: number;
+  captionSize: number;
+  rankPlace: OverlayPlace;
+  linePlace: OverlayPlace;
+  rankColor: string;
+  captionColor: string;
+  caption: string;
+  onShowRank: () => void;
+  onShowCaptions: () => void;
+  onRankSize: (size: number) => void;
+  onCaptionSize: (size: number) => void;
+  onRankPlace: (place: OverlayPlace) => void;
+  onLinePlace: (place: OverlayPlace) => void;
+  onRankColor: (color: string) => void;
+  onCaptionColor: (color: string) => void;
+  onCaption: (caption: string) => void;
+}) {
+  return (
+    <div className="look-panel">
+      <div className="toggle-line">
+        <span>Show the rank number</span>
+        <button type="button" className={showRank ? "switch on" : "switch"} role="switch" aria-checked={showRank} aria-label="Show the rank number" onClick={onShowRank} />
+      </div>
+      <div className="toggle-line">
+        <span>Show the caption</span>
+        <button type="button" className={showCaptions ? "switch on" : "switch"} role="switch" aria-checked={showCaptions} aria-label="Show the caption" onClick={onShowCaptions} />
+      </div>
+      <LookSize label="Rank number size" min={RANK_SIZE_MIN} max={RANK_SIZE_MAX} value={rankSize} onChange={onRankSize} />
+      <LookSize label="Caption size" min={LINE_SIZE_MIN} max={LINE_SIZE_MAX} value={captionSize} onChange={onCaptionSize} />
+      <LookPlace label="Rank number place" value={rankPlace} onChange={onRankPlace} />
+      <LookPlace label="Caption place" value={linePlace} onChange={onLinePlace} />
+      <LookColor label="Rank number color" value={rankColor} onChange={onRankColor} />
+      <LookColor label="Caption color" value={captionColor} onChange={onCaptionColor} />
+      <label className="stack">
+        <span>Caption</span>
+        <input className="field" aria-label="Caption line" value={caption} onChange={(event) => onCaption(event.target.value)} />
+      </label>
+    </div>
+  );
+}
+
+function LookSize({
+  label,
+  min,
+  max,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange: (size: number) => void;
+}) {
+  return (
+    <label className="stack">
+      <span>{label}</span>
+      <span className="stroke-line">
+        <input type="range" min={min} max={max} value={value} aria-label={label} onChange={(event) => onChange(Number(event.target.value))} />
+        <input
+          className="field stroke-num"
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          aria-label={`${label} amount`}
+          onChange={(event) => onChange(Number(event.target.value) || min)}
+        />
+      </span>
+    </label>
+  );
+}
+
+function LookPlace({ label, value, onChange }: { label: string; value: OverlayPlace; onChange: (place: OverlayPlace) => void }) {
+  const places: { id: OverlayPlace; name: string }[] = [
+    { id: "top", name: "Top" },
+    { id: "middle", name: "Middle" },
+    { id: "bottom", name: "Bottom" },
+  ];
+  return (
+    <div className="stack">
+      <span className="field-label">{label}</span>
+      <div className="look-places" role="group" aria-label={label}>
+        {places.map((place) => (
+          <button
+            key={place.id}
+            type="button"
+            className={value === place.id ? "count-btn on" : "count-btn"}
+            aria-pressed={value === place.id}
+            onClick={() => onChange(place.id)}
+          >
+            {place.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LookColor({ label, value, onChange }: { label: string; value: string; onChange: (color: string) => void }) {
+  const swatch = /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#e2b340";
+  return (
+    <label className="stack">
+      <span>{label}</span>
+      <span className="look-swatches">
+        {LOOK_SWATCHES.map((hex) => (
+          <button
+            key={hex}
+            type="button"
+            className={swatch.toLowerCase() === hex ? "look-swatch on" : "look-swatch"}
+            style={{ background: hex }}
+            aria-label={`${label} ${hex}`}
+            aria-pressed={swatch.toLowerCase() === hex}
+            onClick={() => onChange(hex)}
+          />
+        ))}
+      </span>
+      <span className="color-line">
+        <input type="color" value={swatch} aria-label={label} onChange={(event) => onChange(event.target.value)} />
+        <input
+          className="field hex"
+          spellCheck={false}
+          aria-label={`${label} hex`}
+          value={(value.trim() || swatch).toUpperCase()}
+          onChange={(event) => {
+            const next = event.target.value.trim();
+            onChange(next.startsWith("#") ? next : `#${next}`);
+          }}
+        />
+      </span>
     </label>
   );
 }

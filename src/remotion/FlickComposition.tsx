@@ -1,5 +1,18 @@
 import { AbsoluteFill, Audio, OffthreadVideo, Sequence, Video, useCurrentFrame, useVideoConfig } from "remotion";
-import { accentOnPaper, inkOnPaper, lineSizeOf, spokenLine, titleFontFamily, visibleRegions, warmthWash } from "../shared/canvas";
+import {
+  accentOnPaper,
+  lineColorOf,
+  lineSizeOf,
+  overlayFrameStyle,
+  overlayPlaceOf,
+  rankColorOf,
+  rankSizeOf,
+  readableOn,
+  spokenLine,
+  titleFontFamily,
+  visibleRegions,
+  warmthWash,
+} from "../shared/canvas";
 import { SOUND_VOLUME, VOICE_VOLUME, clipAudible, musicVolume } from "../shared/mix";
 import { type Clip, type Flick, type Region, type Track, clipDuration, storedVoiceStart } from "../shared/model";
 
@@ -40,6 +53,10 @@ export type FlickProps = {
   titleFont?: string;
   lineColor?: string;
   lineSize?: number;
+  rankSize?: number;
+  rankColor?: string;
+  rankPlace?: "top" | "middle" | "bottom";
+  linePlace?: "top" | "middle" | "bottom";
   pictureWarmth?: number;
   /** Seconds from the start of the flick before the voice begins. */
   voiceStartSec?: number;
@@ -72,8 +89,12 @@ export const FlickComposition = (props: FlickProps) => {
   const voiceFrom = Math.max(0, Math.round(voiceStartOf(props) * fps));
   const Picture = props.preview ? Video : OffthreadVideo;
   const wash = warmthWash(props.pictureWarmth);
-  const lineColor = inkOnPaper(props.lineColor);
+  const lineColor = lineColorOf(props.lineColor);
   const lineSize = lineSizeOf(props.lineSize);
+  const rankSize = rankSizeOf(props.rankSize);
+  const rankColor = rankColorOf(props.rankColor);
+  const rankPlace = overlayPlaceOf(props.rankPlace, "top");
+  const linePlace = overlayPlaceOf(props.linePlace, "bottom");
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#050505", fontFamily: titleFontFamily(props.titleFont) }}>
@@ -144,9 +165,7 @@ export const FlickComposition = (props: FlickProps) => {
               <div
                 style={{
                   position: "absolute",
-                  left: "50%",
-                  bottom: "6%",
-                  transform: "translateX(-50%)",
+                  zIndex: 3,
                   maxWidth: "88%",
                   width: "max-content",
                   textAlign: "center",
@@ -155,9 +174,8 @@ export const FlickComposition = (props: FlickProps) => {
                   fontWeight: 750,
                   letterSpacing: 0,
                   lineHeight: 1.2,
-                  background: "#fffdf8",
-                  borderRadius: 999,
-                  padding: "14px 28px",
+                  textShadow: "0 2px 8px rgba(0,0,0,0.9)",
+                  ...overlayFrameStyle(linePlace, "line"),
                 }}
               >
                 {captions.get(region.id)}
@@ -170,21 +188,19 @@ export const FlickComposition = (props: FlickProps) => {
         <div
           style={{
             position: "absolute",
-            left: "50%",
-            top: 36,
-            transform: "translateX(-50%)",
             zIndex: 4,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 220,
-            height: 250,
-            background: "#e2b340",
-            color: "#1c1915",
-            fontSize: 132,
+            width: Math.round(rankSize * 1.67),
+            height: Math.round(rankSize * 1.9),
+            background: rankColor,
+            color: readableOn(rankColor),
+            fontSize: rankSize,
             fontWeight: 800,
             lineHeight: 1,
-            borderRadius: "48px 48px 64px 64px",
+            borderRadius: `${Math.round(rankSize * 0.36)}px ${Math.round(rankSize * 0.36)}px ${Math.round(rankSize * 0.48)}px ${Math.round(rankSize * 0.48)}px`,
+            ...overlayFrameStyle(rankPlace, "rank"),
           }}
         >
           {rank}
@@ -195,7 +211,7 @@ export const FlickComposition = (props: FlickProps) => {
           style={{
             position: "absolute",
             left: "50%",
-            top: rank ? 310 : 48,
+            top: rank && rankPlace === "top" ? 36 + Math.round(rankSize * 1.9) + 16 : 48,
             transform: "translateX(-50%)",
             zIndex: 4,
             maxWidth: "88%",
@@ -353,6 +369,10 @@ export type DeskOpenFields = {
   titleFont?: string;
   lineColor?: string;
   lineSize?: number;
+  rankSize?: number;
+  rankColor?: string;
+  rankPlace?: "top" | "middle" | "bottom";
+  linePlace?: "top" | "middle" | "bottom";
   pictureWarmth?: number;
 };
 
@@ -412,6 +432,10 @@ export function openDeskFlick(existing: Flick | null, desk: DeskOpenFields): Des
         titleFont: desk.titleFont,
         lineColor: desk.lineColor,
         lineSize: desk.lineSize,
+        rankSize: desk.rankSize,
+        rankColor: desk.rankColor,
+        rankPlace: desk.rankPlace,
+        linePlace: desk.linePlace,
         pictureWarmth: desk.pictureWarmth,
         voiceRelative: undefined,
         voiceStartSec: undefined,
@@ -440,6 +464,10 @@ export function openDeskFlick(existing: Flick | null, desk: DeskOpenFields): Des
       titleFont: desk.titleFont !== undefined ? desk.titleFont : existing.titleFont,
       lineColor: desk.lineColor !== undefined ? desk.lineColor : existing.lineColor,
       lineSize: desk.lineSize !== undefined ? desk.lineSize : existing.lineSize,
+      rankSize: desk.rankSize !== undefined ? desk.rankSize : existing.rankSize,
+      rankColor: desk.rankColor !== undefined ? desk.rankColor : existing.rankColor,
+      rankPlace: desk.rankPlace !== undefined ? desk.rankPlace : existing.rankPlace,
+      linePlace: desk.linePlace !== undefined ? desk.linePlace : existing.linePlace,
       pictureWarmth: desk.pictureWarmth !== undefined ? desk.pictureWarmth : existing.pictureWarmth,
       voiceRelative,
       musicId: existing.musicId,

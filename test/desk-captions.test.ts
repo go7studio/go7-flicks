@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { accentOnPaper, inkOnPaper } from "../src/shared/canvas";
+import {
+  accentOnPaper,
+  inkOnPaper,
+  overlayFrameStyle,
+  overlayPlaceOf,
+  rankColorOf,
+  rankSizeOf,
+  readableOn,
+  storedOverlayPlace,
+  storedRankColor,
+  storedRankSize,
+} from "../src/shared/canvas";
 import type { Clip, Flick } from "../src/shared/model";
 import {
   captionFromFile,
@@ -191,6 +202,32 @@ test("split screen and dual video use their own tracks", () => {
   });
 });
 
+test("opening the timeline keeps the rank and caption look", () => {
+  const existing = sampleFlick({
+    rankSize: 90,
+    rankColor: "#112233",
+    rankPlace: "middle",
+    linePlace: "top",
+    lineSize: 80,
+    lineColor: "#abcdef",
+    clips: [rankClip("old-rank", "old-media")],
+  });
+  const next = openDeskFlick(existing, {
+    name: "Ranking",
+    editedTrackIds: ["track-top"],
+    clips: [rankClip("new-rank", "new-media")],
+    rankSize: 160,
+    rankPlace: "bottom",
+    linePlace: "middle",
+  });
+  assert.equal(next.flick.rankSize, 160);
+  assert.equal(next.flick.rankColor, "#112233");
+  assert.equal(next.flick.rankPlace, "bottom");
+  assert.equal(next.flick.linePlace, "middle");
+  assert.equal(next.flick.lineSize, 80);
+  assert.equal(next.flick.lineColor, "#abcdef");
+});
+
 test("a cleared headline stays empty", () => {
   const fallback = "Ranking the funniest\ncartoon moments";
   assert.equal(headlineFromFlick("", fallback), "");
@@ -237,8 +274,10 @@ test("the phone is a gold hairline and the rank is a shield", () => {
   assert.match(rank, /color:\s*#1c1915/);
   assert.doesNotMatch(rank, /top:\s*46%/);
   assert.match(title, /background:\s*#fffdf8/);
-  assert.match(clip, /background:\s*#fffdf8/);
-  assert.match(clip, /border-radius:\s*999px/);
+  const onPicture = ruleBody(css, ".phone .phone-rank");
+  assert.match(onPicture, /position:\s*absolute/);
+  assert.match(clip, /var\(--line-size/);
+  assert.doesNotMatch(clip, /background:\s*#fffdf8/);
 });
 
 test("paper pills do not outline the caption", () => {
@@ -253,10 +292,64 @@ test("the composition rank is a gold shield and captions are paper pills", () =>
   assert.equal(source.includes("fontSize: 140"), false);
   assert.equal(source.includes("top: 420"), false);
   assert.equal(source.includes("rgba(28, 25, 21, 0.78)"), false);
-  assert.equal(source.includes('background: "#e2b340"'), true);
-  assert.equal(source.includes("top: 36"), true);
+  assert.equal(source.includes("WebkitTextStroke"), false);
+  assert.match(source, /overlayFrameStyle\(rankPlace, "rank"\)/);
+  assert.match(source, /overlayFrameStyle\(linePlace, "line"\)/);
+  assert.match(source, /rankColorOf\(props\.rankColor\)/);
+  assert.match(source, /lineColorOf\(props\.lineColor\)/);
   assert.equal(source.includes('background: "#fffdf8"'), true);
-  assert.equal(source.includes("borderRadius: 999"), true);
+  assert.equal(overlayFrameStyle("top", "rank").top, 36);
+  assert.equal(rankColorOf(undefined), "#e2b340");
+});
+
+test("rank and caption size, place, and color have usable defaults", () => {
+  assert.equal(rankSizeOf(undefined), 132);
+  assert.equal(rankSizeOf(10), 72);
+  assert.equal(rankSizeOf(999), 220);
+  assert.equal(storedRankSize(132), undefined);
+  assert.equal(storedRankSize(90), 90);
+  assert.equal(rankColorOf("nope"), "#e2b340");
+  assert.equal(rankColorOf("#ff2255"), "#ff2255");
+  assert.equal(storedRankColor("#e2b340"), undefined);
+  assert.equal(storedRankColor("#ff2255"), "#ff2255");
+  assert.equal(overlayPlaceOf("sideways", "bottom"), "bottom");
+  assert.equal(overlayPlaceOf("middle", "top"), "middle");
+  assert.equal(storedOverlayPlace("top", "top"), undefined);
+  assert.equal(storedOverlayPlace("bottom", "top"), "bottom");
+  assert.equal(overlayFrameStyle("middle", "line").top, "50%");
+  assert.equal(overlayFrameStyle("bottom", "line").bottom, "6%");
+  assert.equal(overlayFrameStyle("bottom", "rank").bottom, "8%");
+  assert.equal(overlayFrameStyle("top", "line").top, "8%");
+  assert.equal(readableOn("#e2b340"), "#1c1915");
+  assert.equal(readableOn("#1c1915"), "#fffdf8");
+  assert.equal(readableOn("#ffffff"), "#1c1915");
+});
+
+test("look controls sit in front of more and stay human", () => {
+  const ranking = fs.readFileSync(path.join("src", "ui", "RankingStudio.tsx"), "utf8");
+  const inspector = ranking.slice(ranking.indexOf('className="inspector'), ranking.indexOf("function LookPanel"));
+  const lookButton = inspector.search(/>\r?\n\s*Look\b/);
+  const moreButton = inspector.search(/>\r?\n\s*More\b/);
+  assert.equal(lookButton >= 0 && moreButton > lookButton, true);
+  assert.match(inspector, /Show the rank number/);
+  assert.match(inspector, /Show captions/);
+  assert.match(inspector, /Headline/);
+  const look = ranking.slice(ranking.indexOf("function LookPanel"), ranking.indexOf("function LookSize"));
+  for (const label of [
+    "Show the rank number",
+    "Show the caption",
+    "Rank number size",
+    "Caption size",
+    "Rank number place",
+    "Caption place",
+    "Rank number color",
+    "Caption color",
+  ]) {
+    assert.equal(look.includes(label), true, label);
+  }
+  assert.equal(/\b(flick|desk|slot|Cursor|Codex|paper pill)\b/i.test(look), false);
+  assert.equal(ranking.includes("phone-side"), false);
+  assert.match(ranking, /className=\{`phone-rank place-\$\{rankPlace\}`\}/);
 });
 
 test("the desk phone matches the gold hairline", () => {
