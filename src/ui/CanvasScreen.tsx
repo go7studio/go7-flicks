@@ -411,6 +411,8 @@ export function CanvasScreen({
   const [recording, setRecording] = useState(false);
   const [savedFile, setSavedFile] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [youtubeOpen, setYoutubeOpen] = useState(false);
+  const youtubeRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState<"title" | "description" | "">("");
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -461,6 +463,29 @@ export function CanvasScreen({
     return () => observer.disconnect();
   }, [flick?.id]);
 
+  const editorOpen = Boolean(flick);
+  useEffect(() => {
+    if (!editorOpen || !message) return;
+    const timer = window.setTimeout(() => setMessage(""), 4000);
+    const dismiss = () => setMessage("");
+    window.addEventListener("pointerdown", dismiss);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointerdown", dismiss);
+    };
+  }, [editorOpen, message]);
+
+  useEffect(() => {
+    if (!youtubeOpen) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && youtubeRef.current?.contains(target)) return;
+      setYoutubeOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [youtubeOpen]);
+
   function remember(nextPast: Flick[], nextFuture: Flick[]) {
     past.current = nextPast;
     future.current = nextFuture;
@@ -471,6 +496,7 @@ export function CanvasScreen({
   useEffect(() => {
     setSavedFile(null);
     setMoreOpen(false);
+    setYoutubeOpen(false);
     setCopied("");
     void window.flicks!.readFlick(dir, flickId).then((result) => {
       if (!result.ok || !result.flick || !result.channel) {
@@ -1176,6 +1202,7 @@ export function CanvasScreen({
         setSavedFile(output);
         setMessage(`Saved ${fileBase(output)}`);
         setCopied("");
+        if (kind === "styled") setYoutubeOpen(true);
       } else {
         setMessage(result.message ?? "Export failed.");
       }
@@ -1339,6 +1366,55 @@ export function CanvasScreen({
           value={flick.name}
           onChange={(event) => edit({ ...flick, name: event.target.value })}
         />
+        <div className="toolbar-youtube" ref={youtubeRef}>
+          <button
+            type="button"
+            className="btn"
+            aria-expanded={youtubeOpen}
+            aria-controls="youtube-handout"
+            onClick={() => {
+              setMoreOpen(false);
+              setYoutubeOpen((open) => !open);
+            }}
+          >
+            YouTube title and description
+          </button>
+          {youtubeOpen ? null : (
+            <button
+              className="btn"
+              type="button"
+              aria-label="Copy YouTube title"
+              onClick={() => void copyUploadText(handout.title, "title")}
+            >
+              {copied === "title" ? "Copied" : "Copy"}
+            </button>
+          )}
+          {youtubeOpen ? (
+            <div className="toolbar-youtube-menu" id="youtube-handout" role="region" aria-label="YouTube title and description">
+              {savedFile ? <p className="tiny muted">Saved {fileBase(savedFile)}</p> : null}
+              <div className="upload-row">
+                <span className="upload-paste-label">YouTube title</span>
+                <textarea className="field upload-box" readOnly rows={2} aria-label="YouTube title" value={handout.title} />
+                <button className="btn" type="button" aria-label="Copy YouTube title" onClick={() => void copyUploadText(handout.title, "title")}>
+                  {copied === "title" ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <div className="upload-row">
+                <span className="upload-paste-label">YouTube description</span>
+                <textarea className="field upload-box" readOnly rows={2} aria-label="YouTube description" value={handout.description} />
+                <button
+                  className="btn"
+                  type="button"
+                  aria-label="Copy YouTube description"
+                  onClick={() => void copyUploadText(handout.description, "description")}
+                >
+                  {copied === "description" ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <p className="tiny muted">{UPLOAD_FILE_NOTE}</p>
+            </div>
+          ) : null}
+        </div>
         <span className="spacer" />
         <button className="btn" onClick={onConnections}>
           Connections
@@ -1357,7 +1433,15 @@ export function CanvasScreen({
           Save vertical video
         </button>
         <div className="toolbar-more">
-          <button type="button" className="btn" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>
+          <button
+            type="button"
+            className="btn"
+            aria-expanded={moreOpen}
+            onClick={() => {
+              setYoutubeOpen(false);
+              setMoreOpen((value) => !value);
+            }}
+          >
             More
           </button>
           {moreOpen ? (
@@ -1390,27 +1474,11 @@ export function CanvasScreen({
           ) : null}
         </div>
       </header>
-      {busy ? <p className="banner">{busy}</p> : message ? <p className="banner">{message}</p> : null}
-      <section className="upload-card" aria-label="YouTube title and description">
-        {savedFile ? <p className="saved-name">Saved {fileBase(savedFile)}</p> : null}
-        <div className="upload-row">
-          <span className="upload-paste-label">YouTube title</span>
-          <textarea className="field upload-box" readOnly rows={2} aria-label="YouTube title" value={handout.title} />
-          <button className="btn" type="button" aria-label="Copy YouTube title" onClick={() => void copyUploadText(handout.title, "title")}>
-            Copy
-          </button>
-          {copied === "title" ? <span className="tiny muted">Copied</span> : null}
-        </div>
-        <div className="upload-row">
-          <span className="upload-paste-label">YouTube description</span>
-          <textarea className="field upload-box" readOnly rows={2} aria-label="YouTube description" value={handout.description} />
-          <button className="btn" type="button" aria-label="Copy YouTube description" onClick={() => void copyUploadText(handout.description, "description")}>
-            Copy
-          </button>
-          {copied === "description" ? <span className="tiny muted">Copied</span> : null}
-        </div>
-        <p className="tiny muted">{UPLOAD_FILE_NOTE}</p>
-      </section>
+      {busy || message ? (
+        <p className="canvas-note" role="status">
+          {busy || message}
+        </p>
+      ) : null}
       <div
         className="workspace"
         ref={workspaceRef}
