@@ -67,8 +67,9 @@ export function ConnectionsScreen({
   onBack?: () => void;
 }) {
   const [rows, setRows] = useState<ConnectionPublic[]>([]);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState<FormDraft | null>(null);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [setupOpen, setSetupOpen] = useState<Record<string, boolean>>({});
+  const [drafts, setDrafts] = useState<Record<string, FormDraft>>({});
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [hearError, setHearError] = useState<Record<string, string>>({});
@@ -84,24 +85,25 @@ export function ConnectionsScreen({
     void reload();
   }, []);
 
-  function openNew(kind: ConnectionKind, key = kind) {
-    setEditing(key);
-    setForm(emptyForm(kind));
-    setMessage("");
+  function draftOf(slot: Slot): FormDraft {
+    return drafts[slot.key] ?? (slot.row ? formFromRow(slot.row) : emptyForm(slot.kind));
   }
 
-  function openEdit(slot: Slot) {
-    if (!slot.row) {
-      openNew(slot.kind);
-      return;
-    }
-    setEditing(slot.key);
-    setForm(formFromRow(slot.row));
-    setMessage("");
+  function writeDraft(slot: Slot, next: FormDraft) {
+    setDrafts((current) => ({ ...current, [slot.key]: next }));
+  }
+
+  function toggleProvider(slot: Slot) {
+    setOpen((current) => ({ ...current, [slot.key]: current[slot.key] !== true }));
+  }
+
+  function toggleSetup(slot: Slot) {
+    setSetupOpen((current) => ({ ...current, [slot.key]: current[slot.key] !== true }));
   }
 
   async function save(slot: Slot) {
-    if (!form) return;
+    if (open[slot.key] !== true) return;
+    const form = draftOf(slot);
     const name = form.name.trim();
     if (!name) {
       setMessage("Name this connection first.");
@@ -139,8 +141,27 @@ export function ConnectionsScreen({
         setMessage(result.message || "Could not save that connection.");
         return;
       }
-      setForm(null);
-      setEditing(null);
+      const saved = result.connection;
+      const refreshed = saved ? formFromRow(saved) : { ...form, apiKey: "" };
+      const nextKey = saved?.id || slot.key;
+      setDrafts((current) => {
+        const next = { ...current, [nextKey]: refreshed };
+        if (nextKey !== slot.key) delete next[slot.key];
+        return next;
+      });
+      if (saved && saved.id !== slot.key) {
+        setOpen((current) => {
+          const next = { ...current, [saved.id]: true };
+          delete next[slot.key];
+          return next;
+        });
+        setSetupOpen((current) => {
+          const next = { ...current };
+          if (current[slot.key]) next[saved.id] = true;
+          delete next[slot.key];
+          return next;
+        });
+      }
       setMessage(result.message || "Saved. Press Test.");
       await reload();
     } finally {
@@ -149,7 +170,7 @@ export function ConnectionsScreen({
   }
 
   async function signIn(slot: Slot) {
-    const draftForm = form && editing === slot.key ? form : null;
+    const draftForm = open[slot.key] === true ? draftOf(slot) : null;
     if (!draftForm) {
       setMessage(signInLine(slot.kind));
       return;
@@ -186,8 +207,20 @@ export function ConnectionsScreen({
         return;
       }
       const result = await window.flicks!.testConnection(saved.connection.id);
-      setForm(null);
-      setEditing(null);
+      const refreshed = formFromRow(saved.connection);
+      const nextKey = saved.connection.id;
+      setDrafts((current) => {
+        const next = { ...current, [nextKey]: refreshed };
+        if (nextKey !== slot.key) delete next[slot.key];
+        return next;
+      });
+      if (nextKey !== slot.key) {
+        setOpen((current) => {
+          const next = { ...current, [nextKey]: true };
+          delete next[slot.key];
+          return next;
+        });
+      }
       setMessage(result.ok ? "Connected." : result.message || signInLine(slot.kind));
       await reload();
     } finally {
@@ -262,10 +295,13 @@ export function ConnectionsScreen({
         setMessage(result.message || "Could not delete that connection.");
         return;
       }
-      if (editing === slot.key) {
-        setEditing(null);
-        setForm(null);
-      }
+      setOpen((current) => ({ ...current, [slot.key]: false }));
+      setSetupOpen((current) => ({ ...current, [slot.key]: false }));
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[slot.key];
+        return next;
+      });
       setMessage("Deleted.");
       await reload();
     } finally {
@@ -296,19 +332,23 @@ export function ConnectionsScreen({
             const connected = slot.row?.connected === true;
             const note = connectionNote(slot.kind, slot.row?.statusNote ?? "");
             const status = connected ? "Connected" : note || "Not tested";
-            const editingThis = editing === slot.key;
+            const isOpen = open[slot.key] === true;
+            const setup = setupOpen[slot.key] === true;
+            const form = draftOf(slot);
+            const label = LABELS[slot.kind];
+            const panelId = `conn-panel-${slot.key}`;
             const loginChoices: ConnectionAuth[] =
-              form?.kind === "cursor"
+              form.kind === "cursor"
                 ? ["cli"]
-                : form?.kind === "claude" || form?.kind === "codex" || form?.kind === "grok"
+                : form.kind === "claude" || form.kind === "codex" || form.kind === "grok"
                   ? ["key", "cli"]
                   : ["key"];
             return (
-              <article key={slot.key} className="conn-row">
+              <article key={slot.key} className="conn-row" data-provider={slot.kind} data-open={isOpen ? "true" : "false"}>
                 <div className="conn-id">
-                  <strong>{slot.row?.name || LABELS[slot.kind]}</strong>
+                  <strong>{slot.row?.name || label}</strong>
                   <span className="conn-detail">
-                    {LABELS[slot.kind]}
+                    {label}
                     {slot.row ? ` · ${slot.row.model}` : ""}
                   </span>
                 </div>
@@ -324,162 +364,183 @@ export function ConnectionsScreen({
                   ) : null}
                 </div>
                 <div className="conn-action">
-                  <button className="btn" type="button" disabled={busy === slot.key} onClick={() => openEdit(slot)}>
-                    Edit
-                  </button>
-                  {slot.row ? (
-                    <button className="btn-primary" type="button" disabled={busy === slot.key} onClick={() => void test(slot)}>
-                      Test
-                    </button>
-                  ) : (
-                    <button className="btn-primary" type="button" disabled={busy === slot.key} onClick={() => openEdit(slot)}>
-                      Add
-                    </button>
-                  )}
-                  {slot.row ? (
-                    <button className="btn-ghost" type="button" disabled={busy === slot.key} onClick={() => void remove(slot)}>
-                      Delete
-                    </button>
-                  ) : null}
-                </div>
-                {editingThis && form ? (
-                  <form
-                    className="conn-key stack"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void save(slot);
-                    }}
+                  <button
+                    className="btn"
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-controls={panelId}
+                    aria-label={`${isOpen ? "Hide" : "Show"} ${label}`}
+                    onClick={() => toggleProvider(slot)}
                   >
+                    {isOpen ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <form
+                  id={panelId}
+                  className="conn-key stack"
+                  hidden={!isOpen}
+                  style={{ alignItems: "stretch", flexDirection: "column", display: isOpen ? "flex" : "none" }}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void save(slot);
+                  }}
+                >
+                  <label className="stack">
+                    <span>Name</span>
+                    <input
+                      className="field"
+                      aria-label={`${label} name`}
+                      value={form.name}
+                      onChange={(event) => writeDraft(slot, { ...form, name: event.target.value })}
+                    />
+                  </label>
+                  <label className="stack">
+                    <span>Login</span>
+                    <select
+                      className="field"
+                      aria-label={`${label} login`}
+                      value={form.auth}
+                      onChange={(event) => writeDraft(slot, { ...form, auth: event.target.value as ConnectionAuth })}
+                      disabled={slot.kind === "cursor"}
+                    >
+                      {loginChoices.includes("cli") ? <option value="cli">Sign in on this computer</option> : null}
+                      {loginChoices.includes("key") ? <option value="key">API key</option> : null}
+                    </select>
+                  </label>
+                  {form.auth === "key" ? (
                     <label className="stack">
-                      <span>Kind</span>
-                      <select
+                      <span>Key</span>
+                      <input
                         className="field"
-                        value={form.kind}
-                        disabled={Boolean(slot.row)}
-                        onChange={(event) => {
-                          const kind = event.target.value as ConnectionKind;
-                          setForm(emptyForm(kind));
-                        }}
-                      >
-                        {ORDER.map((kind) => (
-                          <option key={kind} value={kind}>
-                            {LABELS[kind]}
-                          </option>
-                        ))}
-                      </select>
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={slot.row?.hasCredential ? "Key saved — paste to replace" : "Paste a key"}
+                        aria-label={`${form.name} key`}
+                        value={form.apiKey}
+                        onChange={(event) => writeDraft(slot, { ...form, apiKey: event.target.value })}
+                      />
                     </label>
-                    <label className="stack">
-                      <span>Name</span>
-                      <input className="field" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-                    </label>
-                    <label className="stack">
-                      <span>Login</span>
-                      <select
-                        className="field"
-                        value={form.auth}
-                        onChange={(event) => setForm({ ...form, auth: event.target.value as ConnectionAuth })}
-                        disabled={slot.kind === "cursor"}
-                      >
-                        {loginChoices.includes("cli") ? <option value="cli">Sign in on this computer</option> : null}
-                        {loginChoices.includes("key") ? <option value="key">API key</option> : null}
-                      </select>
-                    </label>
-                    {form.auth === "key" ? (
-                      <label className="stack">
-                        <span>Key</span>
-                        <input
-                          className="field"
-                          type="password"
-                          autoComplete="off"
-                          spellCheck={false}
-                          placeholder={slot.row?.hasCredential ? "Key saved — paste to replace" : "Paste a key"}
-                          aria-label={`${form.name} key`}
-                          value={form.apiKey}
-                          onChange={(event) => setForm({ ...form, apiKey: event.target.value })}
-                        />
-                      </label>
-                    ) : (
-                      <p className="muted tiny">
-                        {slot.kind === "cursor" ? "Uses cursor-agent on this computer." : "Uses the CLI on this computer."}
-                        {slot.row ? null : (
-                          <>
-                            {" "}
-                            <button className="btn" type="button" disabled={busy === slot.key} onClick={() => void signIn(slot)}>
-                              Check sign-in
-                            </button>
-                          </>
-                        )}
-                      </p>
-                    )}
-                    <label className="stack">
-                      <span>Model</span>
-                      <input className="field" value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} />
-                    </label>
-                    <label className="stack">
-                      <span>Base URL</span>
-                      <input className="field" value={form.baseUrl} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} />
-                    </label>
-                    {form.kind === "other" ? (
-                      <p className="muted tiny">A Gemini API key can go on this row.</p>
-                    ) : null}
-                    {form.kind === "minimax" ? (
-                      <p className="muted tiny">Test lists MiniMax voices. It does not send a chat.</p>
-                    ) : null}
-                    {form.kind === "elevenlabs" || form.kind === "minimax" ? null : (
-                      <label className="stack">
-                        <span>Format</span>
-                        <select className="field" value={form.api} onChange={(event) => setForm({ ...form, api: event.target.value as ChatApi })}>
-                          <option value="openai-completions">OpenAI-style chat</option>
-                          <option value="anthropic-messages">Anthropic messages</option>
-                        </select>
-                      </label>
-                    )}
-                    <div className="actions">
-                      <button className="btn-primary" type="submit" disabled={busy === slot.key}>
-                        Save
-                      </button>
-                      <button
-                        className="btn"
-                        type="button"
-                        onClick={() => {
-                          setEditing(null);
-                          setForm(null);
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                ) : null}
-                {slot.row && (slot.row.voices.length || slot.kind === "elevenlabs" || slot.kind === "minimax") ? (
-                  <div className="conn-voice">
-                    {slot.row.voices.length ? (
-                      <label>
-                        <span className="conn-detail">Voice</span>
-                        <select
-                          value={slot.row.voiceId}
-                          aria-label={`${LABELS[slot.kind]} voice`}
-                          onChange={(event) => {
-                            const voiceId = event.target.value;
-                            void window.flicks!.setVoice(slot.row!.id, voiceId).then(() => reload());
-                          }}
-                        >
-                          {slot.row.voices.map((voice) => (
-                            <option key={voice.id} value={voice.id}>
-                              {voice.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-                    {slot.kind === "elevenlabs" || slot.kind === "minimax" ? (
-                      <button className="btn" type="button" disabled={busy === slot.key} onClick={() => void hear(slot)}>
-                        Hear voice
+                  ) : (
+                    <p className="muted tiny">
+                      {slot.kind === "cursor" ? "Uses cursor-agent on this computer." : "Uses the CLI on this computer."}
+                      {slot.row ? null : (
+                        <>
+                          {" "}
+                          <button className="btn" type="button" disabled={busy === slot.key} onClick={() => void signIn(slot)}>
+                            Check sign-in
+                          </button>
+                        </>
+                      )}
+                    </p>
+                  )}
+                  <div className="actions">
+                    <button className="btn-primary" type="submit" disabled={busy === slot.key}>
+                      Save
+                    </button>
+                    {slot.row ? (
+                      <button className="btn-primary" type="button" disabled={busy === slot.key} onClick={() => void test(slot)}>
+                        Test
                       </button>
                     ) : null}
-                    {hearError[slot.key] ? <p className="conn-note">{hearError[slot.key]}</p> : null}
                   </div>
-                ) : null}
+                  {slot.row && (slot.row.voices.length || slot.kind === "elevenlabs" || slot.kind === "minimax") ? (
+                    <div className="conn-voice">
+                      {slot.row.voices.length ? (
+                        <label>
+                          <span className="conn-detail">Voice</span>
+                          <select
+                            value={slot.row.voiceId}
+                            aria-label={`${label} voice`}
+                            onChange={(event) => {
+                              const voiceId = event.target.value;
+                              void window.flicks!.setVoice(slot.row!.id, voiceId).then(() => reload());
+                            }}
+                          >
+                            {slot.row.voices.map((voice) => (
+                              <option key={voice.id} value={voice.id}>
+                                {voice.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+                      {slot.kind === "elevenlabs" || slot.kind === "minimax" ? (
+                        <button className="btn" type="button" disabled={busy === slot.key} onClick={() => void hear(slot)}>
+                          Hear voice
+                        </button>
+                      ) : null}
+                      {hearError[slot.key] ? <p className="conn-note">{hearError[slot.key]}</p> : null}
+                    </div>
+                  ) : null}
+                  <div className="stack">
+                    <button className="btn" type="button" aria-expanded={setup} style={{ alignSelf: "flex-start", width: "fit-content" }} onClick={() => toggleSetup(slot)}>
+                      {setup ? "Hide setup" : "Setup"}
+                    </button>
+                    {setup ? (
+                      <div className="stack">
+                        <label className="stack">
+                          <span>Kind</span>
+                          <select
+                            className="field"
+                            aria-label={`${label} kind`}
+                            value={form.kind}
+                            disabled={Boolean(slot.row)}
+                            onChange={(event) => {
+                              const kind = event.target.value as ConnectionKind;
+                              writeDraft(slot, emptyForm(kind));
+                            }}
+                          >
+                            {ORDER.map((kind) => (
+                              <option key={kind} value={kind}>
+                                {LABELS[kind]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="stack">
+                          <span>Model</span>
+                          <input
+                            className="field"
+                            aria-label={`${label} model`}
+                            value={form.model}
+                            onChange={(event) => writeDraft(slot, { ...form, model: event.target.value })}
+                          />
+                        </label>
+                        <label className="stack">
+                          <span>Base URL</span>
+                          <input
+                            className="field"
+                            aria-label={`${label} base URL`}
+                            value={form.baseUrl}
+                            onChange={(event) => writeDraft(slot, { ...form, baseUrl: event.target.value })}
+                          />
+                        </label>
+                        {form.kind === "other" ? <p className="muted tiny">A Gemini API key can go on this row.</p> : null}
+                        {form.kind === "minimax" ? <p className="muted tiny">Test lists MiniMax voices. It does not send a chat.</p> : null}
+                        {form.kind === "elevenlabs" || form.kind === "minimax" ? null : (
+                          <label className="stack">
+                            <span>Format</span>
+                            <select
+                              className="field"
+                              aria-label={`${label} format`}
+                              value={form.api}
+                              onChange={(event) => writeDraft(slot, { ...form, api: event.target.value as ChatApi })}
+                            >
+                              <option value="openai-completions">OpenAI-style chat</option>
+                              <option value="anthropic-messages">Anthropic messages</option>
+                            </select>
+                          </label>
+                        )}
+                        {slot.row ? (
+                          <button className="btn-ghost" type="button" disabled={busy === slot.key} onClick={() => void remove(slot)}>
+                            Delete
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </form>
               </article>
             );
           })}

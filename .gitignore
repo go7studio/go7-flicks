@@ -9,6 +9,7 @@ resources/ffmpeg
 out/
 tmp/
 docs/polish-shots/
+.lovart-canvas/
 
 .env
 .env.*
@@ -23,3 +24,13 @@ credentials.json
 service-account*.json
 id_rsa
 *.p12
+
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/captures/
+android/.idea/
+*.apk
+*.aab
+local.properties

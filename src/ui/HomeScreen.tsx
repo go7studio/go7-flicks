@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FlicksApi } from "../shared/api";
 import type { RecentChannel } from "../shared/model";
 import { whenPhrase } from "../shared/when";
@@ -18,8 +18,11 @@ type Tool = {
 
 type ForgetRecentResult = { ok?: boolean; message?: string };
 
+type RenameChannelResult = { ok?: boolean; message?: string; channel?: { name: string } };
+
 type HomeLibraryApi = FlicksApi & {
   forgetRecent: (dir: string) => Promise<ForgetRecentResult | void>;
+  renameChannel: (dir: string, name: string) => Promise<RenameChannelResult>;
 };
 
 export function recentRowsAfterForget<T extends { path: string }>(
@@ -69,6 +72,10 @@ export function HomeScreen({
   const [mode, setMode] = useState<StartMode>("quick");
   const [staging, setStaging] = useState("");
   const [confirmClean, setConfirmClean] = useState(false);
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const skipTitleBlur = useRef(false);
 
   useEffect(() => {
     setNav(openOn);
@@ -87,6 +94,54 @@ export function HomeScreen({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [confirmClean]);
+
+  useEffect(() => {
+    if (editingPath) titleInputRef.current?.focus();
+  }, [editingPath]);
+
+  function startRename(item: RecentChannel) {
+    setConfirmClean(false);
+    setEditingPath(item.path);
+    setEditDraft(channelTitle(item));
+    skipTitleBlur.current = false;
+  }
+
+  function cancelRename() {
+    skipTitleBlur.current = true;
+    setEditingPath(null);
+    setEditDraft("");
+  }
+
+  async function saveRename(dir: string) {
+    const next = editDraft.trim();
+    const current = recent.find((item) => item.path === dir);
+    const currentTitle = current ? channelTitle(current) : "";
+    if (!next || next === currentTitle) {
+      setEditingPath(null);
+      setEditDraft("");
+      return;
+    }
+    setMessage("");
+    try {
+      const result = await (window.flicks as HomeLibraryApi).renameChannel(dir, next);
+      if (result?.ok !== true) {
+        setMessage(result?.message || "Could not rename that channel.");
+        setEditingPath(null);
+        setEditDraft("");
+        return;
+      }
+      const saved = result.channel?.name?.trim() || next;
+      setRecent((items) => items.map((item) => (item.path === dir ? { ...item, name: saved } : item)));
+      setEditingPath(null);
+      setEditDraft("");
+      const rows = await window.flicks?.recent();
+      if (rows) setRecent(rows);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not rename that channel.");
+      setEditingPath(null);
+      setEditDraft("");
+    }
+  }
 
   async function changeStaging() {
     const result = await window.flicks!.chooseStaging();
@@ -178,15 +233,53 @@ export function HomeScreen({
               const made = item.madeAt ? whenPhrase("Made", item.madeAt) : null;
               const when = [made, clipped].filter(Boolean).join(" · ");
               const title = channelTitle(item);
+              const editing = editingPath === item.path;
               return (
                 <article key={item.path} className="lib-card">
-                  <button type="button" className="lib-card-open" onClick={() => onOpen(item.path)}>
-                    <strong className="lib-name">{title}</strong>
+                  <div className="lib-card-open">
+                    {editing ? (
+                      <input
+                        ref={titleInputRef}
+                        className="field lib-name-edit"
+                        value={editDraft}
+                        aria-label="Channel name"
+                        onChange={(event) => setEditDraft(event.target.value)}
+                        onBlur={() => {
+                          if (skipTitleBlur.current) {
+                            skipTitleBlur.current = false;
+                            return;
+                          }
+                          void saveRename(item.path);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelRename();
+                          } else if (event.key === "Enter") {
+                            event.preventDefault();
+                            skipTitleBlur.current = true;
+                            void saveRename(item.path);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="lib-name"
+                        aria-label={`Rename ${title}`}
+                        title="Click to rename"
+                        onClick={() => startRename(item)}
+                      >
+                        <strong>{title}</strong>
+                      </button>
+                    )}
                     <span className="lib-when" title={when || undefined}>
                       {when || "\u00a0"}
                     </span>
-                    <span className="lib-open">Open</span>
-                  </button>
+                    <button type="button" className="lib-open" onClick={() => onOpen(item.path)}>
+                      Open
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="lib-hide"

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FlicksApi } from "../shared/api";
 import type { ChannelFile, Template } from "../shared/model";
 import { whenPhrase } from "../shared/when";
@@ -51,8 +51,15 @@ export function ChannelScreen({
   const [making, setMaking] = useState(false);
   const [name, setName] = useState("New flick");
   const [draftName, setDraftName] = useState("");
+  const [editingChannel, setEditingChannel] = useState(false);
+  const [editingFlickId, setEditingFlickId] = useState<string | null>(null);
+  const [flickDraft, setFlickDraft] = useState("");
   const [templateId, setTemplateId] = useState("builtin-split");
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const channelInputRef = useRef<HTMLInputElement | null>(null);
+  const flickInputRef = useRef<HTMLInputElement | null>(null);
+  const skipChannelBlur = useRef(false);
+  const skipFlickBlur = useRef(false);
 
   function sortTemplates(items: Template[]): Template[] {
     const rank = new Map(BUILTIN_ORDER.map((id, index) => [id, index]));
@@ -66,6 +73,8 @@ export function ChannelScreen({
 
   useEffect(() => {
     setPendingDelete(null);
+    setEditingChannel(false);
+    setEditingFlickId(null);
     void window.flicks!.openChannel(dir).then((result) => {
       if (!result.ok || !result.channel) setMessage(result.message ?? "Could not open the channel.");
       else {
@@ -107,28 +116,117 @@ export function ChannelScreen({
     return () => window.removeEventListener("keydown", onKey);
   }, [making]);
 
-  async function rename(event: FormEvent) {
-    event.preventDefault();
+  useEffect(() => {
+    if (editingChannel) channelInputRef.current?.focus();
+  }, [editingChannel]);
+
+  useEffect(() => {
+    if (editingFlickId) flickInputRef.current?.focus();
+  }, [editingFlickId]);
+
+  function cancelChannelEdit() {
+    if (!channel) return;
+    skipChannelBlur.current = true;
+    setDraftName(channel.name);
+    setEditingChannel(false);
+  }
+
+  async function saveChannelName() {
     setPendingDelete(null);
     const next = draftName.trim();
-    if (!next) return;
+    if (!next || !channel) {
+      setDraftName(channel?.name ?? "");
+      setEditingChannel(false);
+      return;
+    }
+    if (next === channel.name) {
+      setEditingChannel(false);
+      return;
+    }
     setMessage("");
     try {
       const result = await channelLibrary().renameChannel(dir, next);
       if (!result.ok || !result.channel) {
         setMessage(result.message ?? "Could not rename the channel.");
+        setDraftName(channel.name);
+        setEditingChannel(false);
         return;
       }
       setChannel(result.channel);
       setDraftName(result.channel.name);
+      setEditingChannel(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not rename the channel.");
+      setDraftName(channel.name);
+      setEditingChannel(false);
+    }
+  }
+
+  function startFlickEdit(flickId: string, currentName: string) {
+    setPendingDelete(null);
+    setEditingChannel(false);
+    skipFlickBlur.current = false;
+    setEditingFlickId(flickId);
+    setFlickDraft(currentName);
+  }
+
+  function cancelFlickEdit() {
+    skipFlickBlur.current = true;
+    setEditingFlickId(null);
+    setFlickDraft("");
+  }
+
+  async function saveFlickName(flickId: string) {
+    setPendingDelete(null);
+    const next = flickDraft.trim();
+    const current = channel?.flicks.find((item) => item.id === flickId)?.name ?? "";
+    if (!next || next === current) {
+      setEditingFlickId(null);
+      setFlickDraft("");
+      return;
+    }
+    setMessage("");
+    try {
+      const loaded = await window.flicks!.readFlick(dir, flickId);
+      if (!loaded.ok || !loaded.flick) {
+        setMessage(loaded.message ?? "Could not rename the flick.");
+        setEditingFlickId(null);
+        setFlickDraft("");
+        return;
+      }
+      const result = await window.flicks!.saveFlick(dir, { ...loaded.flick, name: next });
+      if (!result.ok || !result.flick) {
+        setMessage(result.message ?? "Could not rename the flick.");
+        setEditingFlickId(null);
+        setFlickDraft("");
+        return;
+      }
+      setChannel((prev) =>
+        prev
+          ? {
+              ...prev,
+              flicks: prev.flicks.map((item) =>
+                item.id === flickId ? { ...item, name: result.flick!.name, updatedAt: new Date().toISOString() } : item,
+              ),
+            }
+          : prev,
+      );
+      setEditingFlickId(null);
+      setFlickDraft("");
+      await refreshChannel();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not rename the flick.");
+      setEditingFlickId(null);
+      setFlickDraft("");
     }
   }
 
   async function refreshChannel() {
     const opened = await window.flicks!.openChannel(dir);
-    if (opened.ok && opened.channel) setChannel(opened.channel);
+    if (opened.ok && opened.channel) {
+      setChannel(opened.channel);
+      if (!editingChannel) setDraftName(opened.channel.name);
+    }
   }
 
   async function duplicate(flickId: string) {
@@ -196,31 +294,65 @@ export function ChannelScreen({
           <button className="btn-ghost ch-back" type="button" onClick={onHome}>
             Home
           </button>
-          <h1>{channel.name}</h1>
-          <form className="ch-rename" onSubmit={(event) => void rename(event)}>
+          {editingChannel ? (
             <input
-              className="field"
+              ref={channelInputRef}
+              className="field ch-title-edit"
               value={draftName}
               aria-label="Channel name"
               onChange={(event) => setDraftName(event.target.value)}
+              onBlur={() => {
+                if (skipChannelBlur.current) {
+                  skipChannelBlur.current = false;
+                  return;
+                }
+                void saveChannelName();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelChannelEdit();
+                } else if (event.key === "Enter") {
+                  event.preventDefault();
+                  skipChannelBlur.current = true;
+                  void saveChannelName();
+                }
+              }}
             />
-            <button className="btn" type="submit">
-              Rename
-            </button>
-          </form>
-          <div className="ch-colors" role="group" aria-label="Channel color">
-            <span className="muted tiny">Color</span>
-            {ACCENTS.map((color) => (
+          ) : (
+            <h1>
               <button
-                key={color}
-                className={color === channel.accent ? "swatch on" : "swatch"}
-                style={{ background: color }}
-                onClick={() => void accent(color)}
-                aria-label={color}
-                aria-pressed={color === channel.accent}
-              />
-            ))}
-          </div>
+                type="button"
+                className="ch-title"
+                aria-label={`Rename ${channel.name}`}
+                title="Click to rename"
+                onClick={() => {
+                  setPendingDelete(null);
+                  setEditingFlickId(null);
+                  skipChannelBlur.current = false;
+                  setDraftName(channel.name);
+                  setEditingChannel(true);
+                }}
+              >
+                {channel.name}
+              </button>
+            </h1>
+          )}
+          <details className="ch-fold">
+            <summary>Color</summary>
+            <div className="ch-colors" role="group" aria-label="Channel color">
+              {ACCENTS.map((color) => (
+                <button
+                  key={color}
+                  className={color === channel.accent ? "swatch on" : "swatch"}
+                  style={{ background: color }}
+                  onClick={() => void accent(color)}
+                  aria-label={color}
+                  aria-pressed={color === channel.accent}
+                />
+              ))}
+            </div>
+          </details>
         </div>
         <div className="ch-actions">
           <button className="btn" type="button" onClick={onConnections}>
@@ -232,17 +364,69 @@ export function ChannelScreen({
         </div>
       </header>
       {message ? <p className="banner">{message}</p> : null}
+      {channel.flicks.length ? (
+        <details className="ch-fold ch-recent">
+          <summary>Recent details</summary>
+          <ul className="ch-recent-list">
+            {channel.flicks.map((flick) => {
+              const clipped = clippedRow(flick, channel.flicks);
+              return (
+                <li key={flick.id}>
+                  <span>{flick.name}</span>
+                  <span className="ch-when">{clipped || "Not clipped yet"}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      ) : null}
       <div className="ch-list">
         {channel.flicks.map((flick) => {
-          const clipped = clippedRow(flick, channel.flicks);
           const armed = pendingDelete === flick.id;
+          const editingThis = editingFlickId === flick.id;
           return (
             <article key={flick.id} className="ch-card">
-              <button type="button" className="btn-ghost ch-open" onClick={() => onOpen(flick.id)}>
-                <strong>{flick.name}</strong>
-                <span className="ch-when">{clipped || "Not clipped yet"}</span>
-                <span className="ch-go">Open</span>
-              </button>
+              <div className="ch-open">
+                {editingThis ? (
+                  <input
+                    ref={flickInputRef}
+                    className="field ch-flick-edit"
+                    value={flickDraft}
+                    aria-label="Flick name"
+                    onChange={(event) => setFlickDraft(event.target.value)}
+                    onBlur={() => {
+                      if (skipFlickBlur.current) {
+                        skipFlickBlur.current = false;
+                        return;
+                      }
+                      void saveFlickName(flick.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelFlickEdit();
+                      } else if (event.key === "Enter") {
+                        event.preventDefault();
+                        skipFlickBlur.current = true;
+                        void saveFlickName(flick.id);
+                      }
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="ch-flick-title"
+                    aria-label={`Rename ${flick.name}`}
+                    title="Click to rename"
+                    onClick={() => startFlickEdit(flick.id, flick.name)}
+                  >
+                    <strong>{flick.name}</strong>
+                  </button>
+                )}
+                <button type="button" className="btn-ghost ch-go" onClick={() => onOpen(flick.id)}>
+                  Open
+                </button>
+              </div>
               <span className="ch-card-actions">
                 <button className="btn" type="button" onClick={() => void duplicate(flick.id)}>
                   Duplicate

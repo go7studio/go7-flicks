@@ -14,14 +14,21 @@
 }
 
 .studio .home-back {
-  min-height: 48px;
-  padding: 10px 16px;
+  min-height: 36px;
+  padding: 6px 12px;
   background: #fffdf8;
   border: 1px solid #e6dfd2;
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 750;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
   color: #1c1915;
+}
+
+.studio .home-back svg,
+.studio .timeline-open svg {
+  width: 16px;
+  height: 16px;
 }
 
 .studio .home-back:hover {
@@ -57,30 +64,31 @@
 .studio .btn-gold,
 .studio .rank-inspector .btn-primary,
 .studio .btn-primary {
-  min-height: 52px;
-  padding: 12px 20px;
-  background: #e2b340;
+  min-height: 36px;
+  padding: 7px 14px;
+  background: #fffdf8;
   color: #1c1915;
-  border: 1px solid #c9a15b;
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 750;
-  box-shadow: 0 8px 18px rgba(226, 179, 64, 0.28);
+  border: 1px solid #e6dfd2;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+  box-shadow: none;
 }
 
 .studio .link-line .btn-primary,
 .studio .rank-inspector .link-line .btn-primary {
-  min-height: 42px;
-  padding: 8px 14px;
+  min-height: 36px;
+  padding: 7px 14px;
   box-shadow: none;
 }
 
 .studio .btn-gold:hover,
 .studio .rank-inspector .btn-primary:hover,
 .studio .btn-primary:hover {
-  background: #d4a433;
+  background: #f8f1e3;
   color: #1c1915;
-  border-color: #c9a15b;
+  border-color: #1c1915;
 }
 
 .studio .btn-gold:disabled,
@@ -106,7 +114,7 @@
   padding: 16px;
 }
 
-/* The clips list is its own pane. The gold handle is its top edge:
+/* The clips list is its own pane. The paper handle is its top edge:
    drag up and the list grows toward the top of the window. */
 .studio .rank-rail.clip-rail {
   display: flex;
@@ -158,48 +166,61 @@
 .studio .clip-rail[data-clips-sized] .rank-clips {
   flex: none;
   height: var(--rank-clips-height);
-  max-height: calc(100% - 12px - 96px);
+  max-height: calc(100% - 28px - 96px);
 }
 
+/* Paper separator above the clips list. Drag to grow the list. */
 .studio .rank-clips-split {
   position: relative;
   flex: none;
-  height: 12px;
+  height: 28px;
+  margin: 0 16px;
   touch-action: none;
   cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  border: 1px solid #e6dfd2;
+  border-radius: 10px;
+  background: #fffdf8;
+  color: #1c1915;
 }
 
 .studio .rank-clips-split::before {
   content: "";
-  position: absolute;
-  left: 50%;
-  top: 2px;
-  width: 64px;
-  height: 8px;
-  border-radius: 999px;
-  background: #e2b340;
-  transform: translateX(-50%);
+  flex: none;
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+  background:
+    linear-gradient(#1c1915, #1c1915) 0 1px / 14px 1.5px no-repeat,
+    linear-gradient(#1c1915, #1c1915) 0 4.25px / 14px 1.5px no-repeat,
+    linear-gradient(#1c1915, #1c1915) 0 7.5px / 14px 1.5px no-repeat;
+  opacity: 0.55;
 }
 
 .studio .rank-clips-split::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 5px;
-  width: 18px;
-  height: 2px;
-  transform: translateX(-50%);
-  background: radial-gradient(circle, #1c1915 1.15px, transparent 1.3px) 0 0 / 6px 2px repeat-x;
+  content: "Resize clips";
+  flex: none;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0;
+  color: #1c1915;
+  white-space: nowrap;
 }
 
-.studio .rank-clips-split:hover::before,
-.studio .rank-clips-split:focus-visible::before {
-  background: #d4a433;
+.studio .rank-clips-split:hover,
+.studio .rank-clips-split:focus-visible {
+  background: #f8f1e3;
+  border-color: #1c1915;
 }
 
 .studio .rank-clips-split:focus-visible {
   outline: 2px solid #8c6b2e;
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 
 .studio .rank-inspector {
@@ -228,14 +249,14 @@
 .studio .count-btn {
   width: 100%;
   height: auto;
-  min-height: 48px;
-  padding: 8px 6px;
-  border-radius: 14px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border-radius: 10px;
   border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
-  font-size: 14px;
-  font-weight: 750;
+  font-size: 13px;
+  font-weight: 650;
   line-height: 1.2;
 }
 
@@ -299,9 +320,9 @@
   min-width: 0;
   width: auto;
   height: auto;
-  padding: 4px 8px;
-  font-size: 12px;
-  font-weight: 750;
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: 650;
   font-style: normal;
   white-space: nowrap;
   border-radius: 999px;
@@ -329,9 +350,9 @@
 
 .studio .slot-add {
   width: 100%;
-  min-height: 44px;
-  padding: 10px 14px;
-  border-radius: 14px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border-radius: 10px;
   border: 1px dashed #cfc6b8;
   background: transparent;
   color: #6f675c;
@@ -359,17 +380,19 @@
 .studio .order-btn,
 .studio .choice,
 .studio .desk-save {
-  min-height: 52px;
-  border-radius: 14px;
+  min-height: 40px;
+  border-radius: 10px;
   border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
+  font-size: 14px;
   font-weight: 650;
+  line-height: 1.2;
 }
 
 .studio .order-btn {
-  padding: 12px 14px;
-  gap: 10px;
+  padding: 8px 12px;
+  gap: 8px;
 }
 
 .studio .order-btn.on,
@@ -381,8 +404,10 @@
 
 .studio .desk-save {
   width: 100%;
-  padding: 12px 14px;
+  min-height: 36px;
+  padding: 7px 14px;
   border: 1px solid #e6dfd2;
+  font-size: 14px;
   font-weight: 650;
 }
 
@@ -411,15 +436,15 @@
 }
 
 .studio .choice {
-  padding: 12px 14px;
-  font-size: 15px;
-  gap: 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+  gap: 10px;
 }
 
 .studio .choice-diagram {
-  width: 28px;
-  height: 40px;
-  border-radius: 6px;
+  width: 22px;
+  height: 32px;
+  border-radius: 5px;
   border: 1px solid #e6dfd2;
 }
 
@@ -508,7 +533,6 @@
   font-weight: 750;
   line-height: 1.2;
   text-align: center;
-  pointer-events: none;
 }
 
 .studio .clip-kind {
@@ -579,11 +603,11 @@
 }
 
 .studio .rank-inspector .add-line {
-  min-height: 52px;
-  padding: 8px 10px 8px 14px;
+  min-height: 40px;
+  padding: 6px 10px 6px 12px;
   background: #fffdf8;
   border: 1px solid #e6dfd2;
-  border-radius: 14px;
+  border-radius: 10px;
 }
 
 .studio .link-line {
@@ -592,13 +616,15 @@
 
 .studio .link-line .btn,
 .studio .link-line .btn-small {
-  min-height: 42px;
-  padding: 8px 14px;
-  border-radius: 12px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 10px;
   border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
+  font-size: 14px;
   font-weight: 650;
+  line-height: 1.2;
 }
 
 .studio .link-line .btn:hover,
@@ -629,8 +655,8 @@
 }
 
 .studio .switch.on {
-  background: #e2b340;
-  border-color: #c9a15b;
+  background: #1c1915;
+  border-color: #1c1915;
 }
 
 .studio .clip-sound {
@@ -695,13 +721,15 @@
 }
 
 .studio .clip-add .btn {
-  min-height: 48px;
-  border-radius: 12px;
-  border: 1px solid #1c1915;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
-  font-size: 16px;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 .studio .clip-add .btn:hover {
@@ -714,13 +742,15 @@
 
 .studio .more-toggle {
   width: 100%;
-  min-height: 48px;
-  border-radius: 12px;
-  border: 1px solid #1c1915;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
-  font-size: 16px;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 .studio .more-toggle:hover {
@@ -731,22 +761,84 @@
 .studio .look-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.studio .look-panel > .stack,
+.studio .more-panel > .stack,
+.studio .look-panel > label.stack,
+.studio .more-panel > label.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.studio .look-panel .stroke-line,
+.studio .more-panel .stroke-line,
+.studio .look-panel .color-line,
+.studio .more-panel .color-line,
+.studio .style-block .stroke-line,
+.studio .style-block .color-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.75rem;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.studio .look-panel .color-line,
+.studio .more-panel .color-line,
+.studio .style-block .color-line {
+  grid-template-columns: 42px minmax(0, 1fr);
+}
+
+.studio .look-panel .warmth-line,
+.studio .more-panel .warmth-line,
+.studio .style-block .warmth-line {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.studio .look-panel .stroke-num,
+.studio .more-panel .stroke-num,
+.studio .rank-inspector .stroke-num,
+.studio .style-block .stroke-num {
+  width: 4.75rem;
+  min-width: 4.75rem;
+  max-width: 4.75rem;
+  flex: none;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 4px 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  overflow: visible;
 }
 
 .studio .look-places {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  width: 100%;
+  min-width: 0;
 }
 
 .studio .look-places .count-btn {
-  flex: 1;
-  min-height: 40px;
+  flex: none;
+  width: 100%;
+  min-height: 36px;
+  min-width: 0;
 }
 
 .studio .look-swatches {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .studio .look-swatch {
@@ -755,6 +847,7 @@
   padding: 0;
   border-radius: 50%;
   border: 1px solid #e6dfd2;
+  flex: none;
 }
 
 .studio .look-swatch.on {
@@ -767,20 +860,65 @@
 }
 
 .studio .desk-play .btn-gold {
-  min-height: 44px;
-  padding: 10px 16px;
+  min-height: 36px;
+  padding: 7px 16px;
+  background: #e2b340;
+  color: #1c1915;
+  border: 1px solid #c9a15b;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+  box-shadow: none;
+}
+
+.studio .desk-play .btn-gold:hover {
+  background: #d4a433;
+  color: #1c1915;
+  border-color: #c9a15b;
+}
+
+.studio .timeline-open .btn-gold {
+  background: #e2b340;
+  color: #1c1915;
+  border: 1px solid #c9a15b;
+  box-shadow: none;
+}
+
+.studio .timeline-open .btn-gold:hover {
+  background: #d4a433;
+  color: #1c1915;
+  border-color: #c9a15b;
+}
+
+.studio > .banner {
+  position: static;
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin: 8px 16px 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Middle rank sits on the phone center. Keep the empty sentence in the top band. */
+.studio .phone:has(.phone-rank.place-middle) .phone-empty {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 16%;
 }
 
 .studio .desk-play-all {
-  min-height: 44px;
-  min-width: 112px;
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 1px solid #1c1915;
+  min-height: 36px;
+  min-width: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
-  font-size: 16px;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 .studio .desk-play-all:hover {
@@ -789,8 +927,8 @@
 
 .studio .desk-clock {
   color: #1c1915;
-  font-size: 16px;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .studio .which-clip,
@@ -824,6 +962,13 @@
 .studio .file-note,
 .studio .muted {
   color: #6f675c;
+}
+
+/* Desk range fills are ink. Gold stays on Play, Open timeline, and the rank shield. */
+.studio input[type="range"],
+.studio .stroke-line input[type="range"],
+.studio .style-block .stroke-line input[type="range"] {
+  accent-color: #1c1915;
 }
 
 /* Visible focus for desk controls */

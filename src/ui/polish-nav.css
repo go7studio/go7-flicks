@@ -185,18 +185,27 @@
   color: inherit;
   font: inherit;
   text-align: center;
-  cursor: pointer;
-  appearance: none;
 }
 
 .lib-name {
   width: 100%;
   min-height: calc(2 * 1.2em);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1.2;
+  text-align: center;
+  cursor: text;
+  appearance: none;
+}
+
+.lib-name strong {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -204,6 +213,18 @@
   text-wrap: balance;
   overflow-wrap: normal;
   word-break: normal;
+  font: inherit;
+}
+
+.lib-name-edit {
+  width: 100%;
+  min-height: calc(2 * 1.2em);
+  margin: 0;
+  font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  text-align: center;
 }
 
 .lib-when {
@@ -228,9 +249,12 @@
   border-radius: 10px;
   background: var(--gold);
   color: var(--ink);
+  font: inherit;
   font-size: 15px;
   font-weight: 700;
   font-style: normal;
+  cursor: pointer;
+  appearance: none;
 }
 
 .lib-card:hover .lib-open {
@@ -259,9 +283,19 @@
   color: #8a8174;
 }
 
-.lib-card-open:focus-visible,
+.lib-name:hover:not(:focus-visible),
+.ch-title:hover:not(:focus-visible),
+.ch-flick-title:hover:not(:focus-visible) {
+  outline: 1px solid #a89880;
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.lib-name:focus-visible,
+.lib-name-edit:focus-visible,
+.lib-open:focus-visible,
 .lib-hide:focus-visible {
-  outline: 2px solid var(--brass-deep);
+  outline: 2px solid #8c6b2e;
   outline-offset: 2px;
 }
 
@@ -534,6 +568,33 @@
   margin: 0 0 16px;
 }
 
+.ch-title {
+  display: inline;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: text;
+  appearance: none;
+}
+
+.ch-title-edit {
+  display: block;
+  width: min(420px, 100%);
+  margin: 0 0 16px;
+  font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  font-size: 40px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
 .ch-head {
   display: flex;
   align-items: flex-start;
@@ -546,27 +607,63 @@
   min-width: 0;
 }
 
-.ch-back {
-  padding-left: 0;
-  margin-bottom: 4px;
+.ch-page .ch-back {
+  margin: 0 0 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #8a8174;
   font-weight: 650;
 }
 
-.ch-back:hover {
-  color: var(--ink);
+.ch-fold {
+  margin: 2px 0 0;
 }
 
-.ch-rename {
+.ch-fold > summary {
+  width: fit-content;
+  color: #8a8174;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ch-fold > summary:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: 2px;
+}
+
+.ch-fold[open] > summary {
+  margin-bottom: 8px;
+}
+
+.ch-recent {
+  margin: 0 0 14px;
+}
+
+.ch-recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.ch-recent-list li {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 14px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  font-size: 14px;
 }
 
-.ch-rename .field {
-  width: min(280px, 100%);
+.ch-recent-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.ch-page .ch-back:hover {
+  color: var(--ink);
 }
 
 .ch-colors {
@@ -599,6 +696,9 @@
   min-height: 44px;
   padding: 10px 18px;
   font-size: 16px;
+  background: var(--gold);
+  color: var(--ink);
+  border-color: #c9a15b;
 }
 
 .ch-list {
@@ -637,11 +737,34 @@
   text-align: left;
 }
 
+.ch-flick-title {
+  display: inline;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: text;
+  appearance: none;
+}
+
+.ch-flick-title strong,
 .ch-open strong {
   font-size: 22px;
   letter-spacing: -0.03em;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.ch-flick-edit {
+  width: min(320px, 100%);
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
 }
 
 .ch-when {
@@ -651,9 +774,16 @@
 }
 
 .ch-go {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--brass-deep);
+  font: inherit;
   font-size: 13px;
   font-weight: 700;
+  cursor: pointer;
+  appearance: none;
 }
 
 .ch-card-actions {
@@ -666,6 +796,21 @@
 
 .ch-empty {
   margin: 8px 0 0;
+}
+
+.ch-title:focus-visible,
+.ch-title-edit:focus-visible,
+.ch-flick-title:focus-visible,
+.ch-flick-edit:focus-visible,
+.ch-go:focus-visible,
+.ch-back:focus-visible,
+.ch-page .swatch:focus-visible,
+.ch-card-actions .btn:focus-visible,
+.ch-card-actions .btn-danger:focus-visible,
+.ch-actions .btn:focus-visible,
+.ch-actions .btn-primary:focus-visible {
+  outline: 2px solid #8c6b2e;
+  outline-offset: 2px;
 }
 
 .ch-page .modal {

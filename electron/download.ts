@@ -39,10 +39,10 @@ export type DownloadStep = "stored" | "preferred" | "fallback";
 const SKIP_EXT = new Set([".part", ".ytdl", ".json", ".jpg", ".jpeg", ".png", ".webp", ".vtt", ".srt"]);
 const FORMAT_FRAGMENT = /\.f\d+\.[^.]+$/i;
 
-/** A merged file can be kept. A .part file or an unmerged format fragment cannot. */
+/** A merged file can be kept. A .part file, a .part-Frag piece, or an unmerged format fragment cannot. */
 export function isFinishedDownload(file: string): boolean {
   const name = path.basename(file);
-  if (/\.part(?:$|\.)/i.test(name) || /\.ytdl$/i.test(name) || /\.temp\./i.test(name)) return false;
+  if (/\.part(?:$|\.)/i.test(name) || /\.part-Frag\d+/i.test(name) || /\.ytdl$/i.test(name) || /\.temp\./i.test(name)) return false;
   if (FORMAT_FRAGMENT.test(name)) return false;
   const ext = path.extname(name).toLowerCase();
   return Boolean(ext) && !SKIP_EXT.has(ext);

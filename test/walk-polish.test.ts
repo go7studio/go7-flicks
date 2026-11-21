@@ -20,6 +20,31 @@ test("a new flick dialog closes on escape and marks the selected template", () =
   assert.match(source, /if \(event\.key === "Escape"\) setPendingDelete\(null\)/);
 });
 
+test("channel and flick titles click to rename with escape cancel", () => {
+  const source = fs.readFileSync(path.join("src", "ui", "ChannelScreen.tsx"), "utf8");
+  assert.match(source, /className="ch-title"/);
+  assert.match(source, /className="ch-flick-title"/);
+  assert.match(source, /renameChannel\(dir, next\)/);
+  assert.match(source, /saveFlick\(dir, \{ \.\.\.loaded\.flick, name: next \}\)/);
+  assert.match(source, /cancelChannelEdit\(\)/);
+  assert.match(source, /cancelFlickEdit\(\)/);
+  assert.match(source, /event\.key === "Escape"/);
+  assert.match(source, /event\.key === "Enter"/);
+  assert.match(source, /This channel has no flicks yet\./);
+  assert.equal(source.includes('className="ch-rename"'), false);
+});
+
+test("home library channel titles click to rename with escape cancel", () => {
+  const source = fs.readFileSync(path.join("src", "ui", "HomeScreen.tsx"), "utf8");
+  assert.match(source, /renameChannel\(dir, next\)/);
+  assert.match(source, /startRename\(item\)/);
+  assert.match(source, /cancelRename\(\)/);
+  assert.match(source, /className="lib-name"/);
+  assert.match(source, /className="field lib-name-edit"/);
+  assert.match(source, /event\.key === "Escape"/);
+  assert.match(source, /event\.key === "Enter"/);
+});
+
 test("buttons keep a brass focus ring", () => {
   const css = fs.readFileSync(path.join("src", "styles.css"), "utf8");
   assert.match(css, /\.btn:focus-visible/);

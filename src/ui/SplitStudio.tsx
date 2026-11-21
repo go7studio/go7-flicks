@@ -208,18 +208,45 @@ export function SplitStudio({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [lookOpen, setLookOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [faceMore, setFaceMore] = useState(false);
+  const [gameMore, setGameMore] = useState(false);
   const faceVideo = useRef<HTMLVideoElement>(null);
   const gameVideo = useRef<HTMLVideoElement>(null);
+  const faceWords = useRef<HTMLInputElement>(null);
+  const gameWords = useRef<HTMLInputElement>(null);
+  const noteTimer = useRef(0);
   const keepDraft = useRef(true);
   const draftKey = deskStorageKey(channelDir);
   const [boundKey, setBoundKey] = useState<string | null>(null);
   const folderLabel = announced || (dir ? folderName(dir) : "");
+
+  useEffect(() => () => window.clearTimeout(noteTimer.current), []);
 
   useEffect(() => {
     void window.flicks?.templates().then((items) => {
       setRecipes(items.filter((item) => !item.builtin && item.tracks.some((track) => track.id === DUAL_FACE)));
     });
   }, []);
+
+  function flashNote(text: string) {
+    window.clearTimeout(noteTimer.current);
+    setMessage(text);
+    if (!text) return;
+    noteTimer.current = window.setTimeout(() => setMessage(""), 3400);
+  }
+
+  function clearNote() {
+    window.clearTimeout(noteTimer.current);
+    setMessage("");
+  }
+
+  function focusWords(which: "face" | "game") {
+    const node = which === "face" ? faceWords.current : gameWords.current;
+    node?.focus();
+    node?.select();
+  }
 
   useEffect(() => {
     if (channelDir) {
@@ -271,7 +298,7 @@ export function SplitStudio({
           setGameHeard(!(flick.tracks.find((item) => item.id === pair.game)?.muted ?? false));
           setDir(channelDir);
         } else if (result.message) {
-          setMessage(result.message);
+          flashNote(result.message);
         }
         if (!cancel) setBoundKey(draftKey);
       });
@@ -357,7 +384,7 @@ export function SplitStudio({
     if (!parent) return null;
     const created = await window.flicks!.createChannel(parent, name.trim() || "Dual video");
     if (!created.ok || !created.dir) {
-      setMessage(created.message ?? "Could not create the channel.");
+      flashNote(created.message ?? "Could not create the channel.");
       return null;
     }
     setDir(created.dir);
@@ -389,7 +416,7 @@ export function SplitStudio({
   function togglePlay() {
     const pairs = liveVideos();
     if (!pairs.length) {
-      setMessage("Add a clip to play.");
+      flashNote("Add a clip to play.");
       return;
     }
     if (playing) {
@@ -414,17 +441,17 @@ export function SplitStudio({
   async function getSide(which: "face" | "game") {
     const side = which === "face" ? face : game;
     if (!side.link.trim()) {
-      setMessage("Paste a link.");
+      flashNote("Paste a link.");
       return;
     }
     setBusy(true);
-    setMessage("Getting the clip…");
+    flashNote("Getting the clip…");
     try {
       const folder = await ensureDir();
       if (!folder) return;
       const result = await window.flicks!.downloadMedia(folder, side.link);
       if (!result.ok || !result.asset) {
-        setMessage(result.message ?? "Could not get that clip.");
+        flashNote(result.message ?? "Could not get that clip.");
         return;
       }
       const resolved = result.media?.find((item) => item.id === result.asset?.id);
@@ -442,7 +469,7 @@ export function SplitStudio({
       };
       if (which === "face") setFace(next);
       else setGame(next);
-      setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+      flashNote(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
     } finally {
       setBusy(false);
     }
@@ -450,13 +477,13 @@ export function SplitStudio({
 
   async function add(which: "face" | "game") {
     setBusy(true);
-    setMessage("");
+    clearNote();
     try {
       const folder = await ensureDir();
       if (!folder) return;
       const result = await window.flicks!.importMedia(folder, "copy");
       if (!result.ok || !result.asset) {
-        setMessage(result.message ?? "No clip chosen.");
+        flashNote(result.message ?? "No clip chosen.");
         return;
       }
       const resolved = result.media?.find((item) => item.id === result.asset?.id);
@@ -474,7 +501,7 @@ export function SplitStudio({
       };
       if (which === "face") setFace(side);
       else setGame(side);
-      if (result.workingCopy) setMessage("Working copy is on this computer.");
+      if (result.workingCopy) flashNote("Working copy is on this computer.");
     } finally {
       setBusy(false);
     }
@@ -482,11 +509,11 @@ export function SplitStudio({
 
   async function openTimeline() {
     if (!face.mediaId && !game.mediaId) {
-      setMessage("Add the face clip, the gameplay clip, or both.");
+      flashNote("Add the face clip, the gameplay clip, or both.");
       return;
     }
     setBusy(true);
-    setMessage("");
+    clearNote();
     try {
       const folder = await ensureDir();
       if (!folder) return;
@@ -494,7 +521,7 @@ export function SplitStudio({
       if (flickId) {
         const loaded = await window.flicks!.readFlick(folder, flickId);
         if (!loaded.ok || !loaded.flick) {
-          setMessage(loaded.message ?? "Could not open the timeline.");
+          flashNote(loaded.message ?? "Could not open the timeline.");
           return;
         }
         existing = loaded.flick;
@@ -503,7 +530,7 @@ export function SplitStudio({
       if (!shell) {
         const created = await window.flicks!.createFlick(folder, name.trim() || "Dual video", "builtin-dual");
         if (!created.ok || !created.flick) {
-          setMessage(created.message ?? "Could not open the timeline.");
+          flashNote(created.message ?? "Could not open the timeline.");
           return;
         }
         shell = created.flick;
@@ -543,7 +570,7 @@ export function SplitStudio({
           };
       const saved = await window.flicks!.saveFlick(folder, flick);
       if (!saved.ok || !saved.flick) {
-        setMessage(saved.message ?? "Could not save the dual video.");
+        flashNote(saved.message ?? "Could not save the dual video.");
         return;
       }
       keepDraft.current = false;
@@ -575,7 +602,7 @@ export function SplitStudio({
       return clip;
     });
     const result = await window.flicks!.saveTemplate(base, base.name);
-    setMessage(result.ok ? `Saved “${base.name}”. The videos stay off the template.` : result.message ?? "Could not save that template.");
+    flashNote(result.ok ? `Saved “${base.name}”. The videos stay off the template.` : result.message ?? "Could not save that template.");
     if (result.ok) {
       const items = await window.flicks!.templates();
       setRecipes(items.filter((item) => !item.builtin && item.tracks.some((track) => track.id === DUAL_FACE)));
@@ -600,7 +627,7 @@ export function SplitStudio({
     setFaceHeard(!(template.tracks.find((item) => item.id === DUAL_FACE)?.muted ?? false));
     setGameHeard(!(template.tracks.find((item) => item.id === DUAL_GAME)?.muted ?? false));
     setName(template.name);
-    setMessage(`Loaded “${template.name}”. Add the clips, then open the timeline.`);
+    flashNote(`Loaded “${template.name}”. Add the clips, then open the timeline.`);
   }
 
   const top = arrangement === "face-top" ? face : game;
@@ -615,61 +642,78 @@ export function SplitStudio({
           <HomeIcon />
           Home
         </button>
-        <strong>Dual video</strong>
-        {folderLabel ? <span className="timeline-hint">{folderLabel}</span> : null}
-        <button className="btn-gold" disabled={busy} onClick={() => void openTimeline()}>
-          <TimelineIcon />
-          Open timeline
-        </button>
+        <div className="rank-title">
+          <strong>Dual video</strong>
+          {folderLabel ? <span className="timeline-hint">{folderLabel}</span> : null}
+        </div>
+        <div className="timeline-open">
+          <button className="btn-gold" disabled={busy} onClick={() => void openTimeline()}>
+            <TimelineIcon />
+            Open timeline
+          </button>
+        </div>
       </header>
-      {message ? <p className="banner">{message}</p> : null}
       <div className="studio-body">
         <aside className="rail stack rank-rail">
-          <p className="rail-label">Arrangement</p>
-          <div className="order-stack">
-            {ARRANGEMENTS.map((item) => (
-              <button
-                key={item.id}
-                className={arrangement === item.id ? "choice on" : "choice"}
-                aria-pressed={arrangement === item.id}
-                onClick={() => chooseArrangement(item.id)}
-              >
-                <span className="choice-radio" aria-hidden="true" />
-                <span className="choice-diagram" style={diagramStyle(item.id, item.id === "face-top" ? "face-top" : "game-top")} />
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <p className="rail-label">Size</p>
-          <div className="order-stack" role="group" aria-label="Size">
-            {PRESETS.map((item) => (
-              <button
-                key={item.id}
-                className={preset === item.id ? "choice on" : "choice"}
-                aria-pressed={preset === item.id}
-                onClick={() => choosePreset(item.id)}
-              >
-                <span className="choice-radio" aria-hidden="true" />
-                <span className="choice-diagram" style={diagramStyle(item.id, arrangement)} />
-                {item.label}
-              </button>
-            ))}
-          </div>
-          {preset === "custom" ? <p className="muted">This template uses its own seam. Pick Half, Face larger, or Gameplay larger.</p> : null}
-          <button className="btn desk-save" disabled={busy} onClick={() => void saveRecipe()}>
-            Save template
+          <button type="button" className="more-toggle" aria-expanded={lookOpen} onClick={() => setLookOpen((value) => !value)}>
+            Look
           </button>
-          {recipes.length ? (
-            <div className="order-stack">
-              <p className="rail-label">Your templates</p>
-              {recipes.map((recipe) => (
-                <button key={recipe.id} className="choice" onClick={() => loadRecipe(recipe)}>
-                  {recipe.name}
-                </button>
-              ))}
+          {lookOpen ? (
+            <div className="look-panel">
+              <p className="rail-label">Arrangement</p>
+              <div className="order-stack">
+                {ARRANGEMENTS.map((item) => (
+                  <button
+                    key={item.id}
+                    className={arrangement === item.id ? "choice on" : "choice"}
+                    aria-pressed={arrangement === item.id}
+                    onClick={() => chooseArrangement(item.id)}
+                  >
+                    <span className="choice-radio" aria-hidden="true" />
+                    <span className="choice-diagram" style={diagramStyle(item.id, item.id === "face-top" ? "face-top" : "game-top")} />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <p className="rail-label">Size</p>
+              <div className="order-stack" role="group" aria-label="Size">
+                {PRESETS.map((item) => (
+                  <button
+                    key={item.id}
+                    className={preset === item.id ? "choice on" : "choice"}
+                    aria-pressed={preset === item.id}
+                    onClick={() => choosePreset(item.id)}
+                  >
+                    <span className="choice-radio" aria-hidden="true" />
+                    <span className="choice-diagram" style={diagramStyle(item.id, arrangement)} />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              {preset === "custom" ? <p className="muted">This template uses its own seam. Pick Half, Face larger, or Gameplay larger.</p> : null}
             </div>
           ) : null}
-          <p className="muted">Save keeps this seam, these words, and which side is heard. The videos stay in the channel.</p>
+          <button type="button" className="more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>
+            More
+          </button>
+          {moreOpen ? (
+            <div className="more-panel">
+              <button className="btn desk-save" disabled={busy} onClick={() => void saveRecipe()}>
+                Save template
+              </button>
+              {recipes.length ? (
+                <div className="order-stack">
+                  <p className="rail-label">Your templates</p>
+                  {recipes.map((recipe) => (
+                    <button key={recipe.id} className="choice" onClick={() => loadRecipe(recipe)}>
+                      {recipe.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <p className="muted">Save keeps this seam, these words, and which side is heard. The videos stay in the channel.</p>
+            </div>
+          ) : null}
         </aside>
         <div className="stage-wrap">
           <div className="phone-column">
@@ -682,6 +726,7 @@ export function SplitStudio({
                   videoRef={topLabel === "Face" ? faceVideo : gameVideo}
                   onTime={() => guardSide(topLabel === "Face" ? "face" : "game")}
                   onPlayState={syncPlaying}
+                  onEditWords={() => focusWords(topLabel === "Face" ? "face" : "game")}
                 />
                 <SidePreview
                   side={bottom}
@@ -690,6 +735,7 @@ export function SplitStudio({
                   videoRef={bottomLabel === "Face" ? faceVideo : gameVideo}
                   onTime={() => guardSide(bottomLabel === "Face" ? "face" : "game")}
                   onPlayState={syncPlaying}
+                  onEditWords={() => focusWords(bottomLabel === "Face" ? "face" : "game")}
                 />
               </div>
             </div>
@@ -701,6 +747,15 @@ export function SplitStudio({
                 {playing ? "Pause" : "Play"}
               </button>
             </div>
+            {message ? (
+              <p
+                className="desk-note"
+                role="status"
+                style={{ position: "static", zIndex: 0, pointerEvents: "none", maxWidth: "16rem", textAlign: "center" }}
+              >
+                {message}
+              </p>
+            ) : null}
           </div>
         </div>
         <aside className="inspector stack rank-inspector">
@@ -718,41 +773,57 @@ export function SplitStudio({
               <label className="stack desk-words">
                 <span>Words on the face</span>
                 <input
+                  ref={faceWords}
                   className="field"
                   value={face.title}
                   placeholder="On the face"
+                  aria-label="Words on the face"
                   onChange={(event) => setFace((side) => ({ ...side, title: event.target.value }))}
                 />
               </label>
-              <SideRange
-                side={face}
-                which="Face"
-                onIn={(next) => setFace((row) => ({ ...row, inSec: clampIn(next, row.outSec, row.duration) }))}
-                onOut={(next) => setFace((row) => ({ ...row, outSec: clampOut(next, row.inSec, row.duration) }))}
-              />
-              <span className="link-line">
-                <input
-                  className="field"
-                  value={face.link}
-                  placeholder="Paste a link"
-                  onChange={(event) => setFace((side) => ({ ...side, link: event.target.value }))}
-                />
-                <button className="btn-small btn" disabled={busy} onClick={() => void getSide("face")}>
-                  Get
-                </button>
-              </span>
-              <span className="clip-sound">
-                <SpeakerIcon />
-                <span className="clip-sound-word">Sound</span>
-                <button
-                  type="button"
-                  className={faceHeard ? "switch on" : "switch"}
-                  role="switch"
-                  aria-checked={faceHeard}
-                  aria-label="Face sound"
-                  onClick={() => setFaceHeard((value) => !value)}
-                />
-              </span>
+              <button
+                type="button"
+                className="more-toggle"
+                aria-expanded={faceMore}
+                aria-label="More face controls"
+                onClick={() => setFaceMore((value) => !value)}
+              >
+                More
+              </button>
+              {faceMore ? (
+                <div className="more-panel">
+                  <SideRange
+                    side={face}
+                    which="Face"
+                    onIn={(next) => setFace((row) => ({ ...row, inSec: clampIn(next, row.outSec, row.duration) }))}
+                    onOut={(next) => setFace((row) => ({ ...row, outSec: clampOut(next, row.inSec, row.duration) }))}
+                  />
+                  <span className="link-line">
+                    <input
+                      className="field"
+                      value={face.link}
+                      placeholder="Paste a link"
+                      aria-label="Face link"
+                      onChange={(event) => setFace((side) => ({ ...side, link: event.target.value }))}
+                    />
+                    <button className="btn-small btn" disabled={busy} onClick={() => void getSide("face")}>
+                      Get
+                    </button>
+                  </span>
+                  <span className="clip-sound">
+                    <SpeakerIcon />
+                    <span className="clip-sound-word">Sound</span>
+                    <button
+                      type="button"
+                      className={faceHeard ? "switch on" : "switch"}
+                      role="switch"
+                      aria-checked={faceHeard}
+                      aria-label="Face sound"
+                      onClick={() => setFaceHeard((value) => !value)}
+                    />
+                  </span>
+                </div>
+              ) : null}
             </div>
             <span className="clip-add">
               <button className="plus" disabled={busy} aria-label="Add face clip" onClick={() => void add("face")}>
@@ -771,41 +842,57 @@ export function SplitStudio({
               <label className="stack desk-words">
                 <span>Words on the gameplay</span>
                 <input
+                  ref={gameWords}
                   className="field"
                   value={game.title}
                   placeholder="On the gameplay"
+                  aria-label="Words on the gameplay"
                   onChange={(event) => setGame((side) => ({ ...side, title: event.target.value }))}
                 />
               </label>
-              <SideRange
-                side={game}
-                which="Gameplay"
-                onIn={(next) => setGame((row) => ({ ...row, inSec: clampIn(next, row.outSec, row.duration) }))}
-                onOut={(next) => setGame((row) => ({ ...row, outSec: clampOut(next, row.inSec, row.duration) }))}
-              />
-              <span className="link-line">
-                <input
-                  className="field"
-                  value={game.link}
-                  placeholder="Paste a link"
-                  onChange={(event) => setGame((side) => ({ ...side, link: event.target.value }))}
-                />
-                <button className="btn-small btn" disabled={busy} onClick={() => void getSide("game")}>
-                  Get
-                </button>
-              </span>
-              <span className="clip-sound">
-                <SpeakerIcon />
-                <span className="clip-sound-word">Sound</span>
-                <button
-                  type="button"
-                  className={gameHeard ? "switch on" : "switch"}
-                  role="switch"
-                  aria-checked={gameHeard}
-                  aria-label="Gameplay sound"
-                  onClick={() => setGameHeard((value) => !value)}
-                />
-              </span>
+              <button
+                type="button"
+                className="more-toggle"
+                aria-expanded={gameMore}
+                aria-label="More gameplay controls"
+                onClick={() => setGameMore((value) => !value)}
+              >
+                More
+              </button>
+              {gameMore ? (
+                <div className="more-panel">
+                  <SideRange
+                    side={game}
+                    which="Gameplay"
+                    onIn={(next) => setGame((row) => ({ ...row, inSec: clampIn(next, row.outSec, row.duration) }))}
+                    onOut={(next) => setGame((row) => ({ ...row, outSec: clampOut(next, row.inSec, row.duration) }))}
+                  />
+                  <span className="link-line">
+                    <input
+                      className="field"
+                      value={game.link}
+                      placeholder="Paste a link"
+                      aria-label="Gameplay link"
+                      onChange={(event) => setGame((side) => ({ ...side, link: event.target.value }))}
+                    />
+                    <button className="btn-small btn" disabled={busy} onClick={() => void getSide("game")}>
+                      Get
+                    </button>
+                  </span>
+                  <span className="clip-sound">
+                    <SpeakerIcon />
+                    <span className="clip-sound-word">Sound</span>
+                    <button
+                      type="button"
+                      className={gameHeard ? "switch on" : "switch"}
+                      role="switch"
+                      aria-checked={gameHeard}
+                      aria-label="Gameplay sound"
+                      onClick={() => setGameHeard((value) => !value)}
+                    />
+                  </span>
+                </div>
+              ) : null}
             </div>
             <span className="clip-add">
               <button className="plus" disabled={busy} aria-label="Add gameplay clip" onClick={() => void add("game")}>
@@ -828,6 +915,7 @@ function SidePreview({
   videoRef,
   onTime,
   onPlayState,
+  onEditWords,
 }: {
   side: Side;
   label: string;
@@ -835,8 +923,10 @@ function SidePreview({
   videoRef: RefObject<HTMLVideoElement | null>;
   onTime: () => void;
   onPlayState: () => void;
+  onEditWords: () => void;
 }) {
   const caption = spokenLine(side.title, side.mediaName);
+  const wordsLabel = label === "Face" ? "Words on the face" : "Words on the gameplay";
   return (
     <div className={label === "Face" ? "split-side is-face" : "split-side is-game"}>
       {side.previewUrl ? (
@@ -858,8 +948,42 @@ function SidePreview({
       ) : (
         <span>{label}</span>
       )}
-      <span className="split-side-label">{label}</span>
-      {caption ? <span className="split-side-caption">{caption}</span> : null}
+      <button
+        type="button"
+        className="split-side-label"
+        aria-label={`Edit ${wordsLabel}`}
+        onClick={onEditWords}
+        style={{
+          pointerEvents: "auto",
+          cursor: "pointer",
+          appearance: "none",
+          font: "inherit",
+          border: "1px solid #e6dfd2",
+          color: "#1c1915",
+          background: "#fffdf8",
+        }}
+      >
+        {label}
+      </button>
+      <button
+        type="button"
+        className="split-side-caption"
+        aria-label={caption ? `Edit ${wordsLabel}` : wordsLabel}
+        onClick={onEditWords}
+        style={{
+          pointerEvents: "auto",
+          cursor: "pointer",
+          border: "1px solid #e2b340",
+          font: "inherit",
+          fontSize: 14,
+          fontWeight: 750,
+          color: "#1c1915",
+          background: "#fffdf8",
+          appearance: "none",
+        }}
+      >
+        {caption || "Add words"}
+      </button>
     </div>
   );
 }

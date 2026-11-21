@@ -173,6 +173,29 @@ function rememberRankClips(height: number) {
   }
 }
 
+/** Look and More start closed. This window remembers which one the person opened. */
+const RANK_SECTIONS_KEY = "go7-ranking-sections";
+
+function readRankSections(): { look: boolean; more: boolean } {
+  try {
+    if (typeof sessionStorage === "undefined") return { look: false, more: false };
+    const raw = sessionStorage.getItem(RANK_SECTIONS_KEY);
+    if (!raw) return { look: false, more: false };
+    const parsed = JSON.parse(raw) as { look?: unknown; more?: unknown };
+    return { look: parsed.look === true, more: parsed.more === true };
+  } catch {
+    return { look: false, more: false };
+  }
+}
+
+function rememberRankSections(next: { look: boolean; more: boolean }) {
+  try {
+    sessionStorage.setItem(RANK_SECTIONS_KEY, JSON.stringify({ look: next.look === true, more: next.more === true }));
+  } catch {
+    /* This window may block storage. The sections still open until reload. */
+  }
+}
+
 type RankingDraft = {
   headline?: string;
   accentWords?: string;
@@ -287,12 +310,13 @@ export function RankingStudio({
   const [orderIds, setOrderIds] = useState<string[]>([]);
   const [slots, setSlots] = useState<Slot[]>(() => makeSlots(5));
   const [selected, setSelected] = useState(0);
-  const [message, setMessage] = useState("");
+  const [message, setMessageState] = useState("");
   const [busy, setBusy] = useState(false);
   const [recipes, setRecipes] = useState<Template[]>([]);
   const [clipsHeight, setClipsHeight] = useState<number | null>(readRankClips);
-  const [more, setMore] = useState(false);
-  const [look, setLook] = useState(false);
+  const [sectionMemory] = useState(() => readRankSections());
+  const [more, setMore] = useState(sectionMemory.more);
+  const [look, setLook] = useState(sectionMemory.look);
   const [playing, setPlaying] = useState(false);
   const [playKind, setPlayKind] = useState<"ranking" | "clip" | null>(null);
   const [nowSec, setNowSec] = useState(0);
@@ -305,6 +329,10 @@ export function RankingStudio({
     setSlots(next);
     setSelected((index) => (next.length ? Math.min(Math.max(0, index), next.length - 1) : 0));
   }, [slots]);
+
+  useEffect(() => {
+    rememberRankSections({ look, more });
+  }, [look, more]);
   const deckA = useRef<HTMLVideoElement>(null);
   const deckB = useRef<HTMLVideoElement>(null);
   const liveDeck = useRef<0 | 1>(0);
@@ -321,7 +349,16 @@ export function RankingStudio({
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
   const noteTimer = useRef(0);
-  useEffect(() => () => window.clearTimeout(noteTimer.current), []);
+  const messageTimer = useRef(0);
+  const headlineRef = useRef<HTMLTextAreaElement>(null);
+  const captionRef = useRef<HTMLInputElement>(null);
+  useEffect(
+    () => () => {
+      window.clearTimeout(noteTimer.current);
+      window.clearTimeout(messageTimer.current);
+    },
+    [],
+  );
   const railRef = useRef<HTMLElement>(null);
   const clipsPaneRef = useRef<HTMLDivElement>(null);
   const clipsHeightRef = useRef(clipsHeight);
@@ -455,7 +492,7 @@ export function RankingStudio({
           setSelected(0);
           setDir(channelDir);
         } else if (result.message) {
-          setMessage(result.message);
+          flashMessage(result.message);
         }
         if (!cancel) setBoundKey(draftKey);
       });
@@ -824,7 +861,7 @@ export function RankingStudio({
     const order = filledIds();
     const startId = rankingStartId(slots[selected]?.id, order);
     if (!startId) {
-      setMessage(slots.some((item) => item.mediaId) ? "That clip has no preview yet." : "This rank has no clip.");
+      flashMessage(slots.some((item) => item.mediaId) ? "That clip has no preview yet." : "This rank has no clip.");
       return;
     }
     const startAt = Math.max(0, order.indexOf(startId));
@@ -845,7 +882,7 @@ export function RankingStudio({
     stopSequence();
     const current = slots[selected];
     if (!current?.previewUrl) {
-      setMessage(current?.mediaId ? "That clip has no preview yet." : "This rank has no clip.");
+      flashMessage(current?.mediaId ? "That clip has no preview yet." : "This rank has no clip.");
       return;
     }
     void startPlay(current.id, "file");
@@ -936,7 +973,7 @@ export function RankingStudio({
     const lastMedia = slots.reduce((end, item, index) => (item.mediaId ? index : end), -1);
     const nextCount = Math.max(count, lastMedia + 1);
     if (nextCount === slots.length) {
-      if (count < slots.length) setMessage("The clips already here stay.");
+      if (count < slots.length) flashMessage("The clips already here stay.");
       return;
     }
     pausePreview();
@@ -967,7 +1004,7 @@ export function RankingStudio({
     setPasted("");
     setPlayback("countdown");
     setOrderIds([]);
-    setMessage("Started over. Rankings you already saved stay in this channel.");
+    flashMessage("Started over. Rankings you already saved stay in this channel.");
   }
 
   function shuffle() {
@@ -1027,7 +1064,7 @@ export function RankingStudio({
     base.linePlace = storedOverlayPlace(linePlace, "bottom");
     base.pictureWarmth = storedWarmth(warmth);
     const result = await window.flicks!.saveTemplate(base, title);
-    setMessage(result.ok ? `Saved “${title}”. This order and these words can run again.` : result.message ?? "Could not save that template.");
+    flashMessage(result.ok ? `Saved “${title}”. This order and these words can run again.` : result.message ?? "Could not save that template.");
     if (result.ok) {
       const items = await window.flicks!.templates();
       setRecipes(items.filter((item) => !item.builtin && item.headline));
@@ -1071,20 +1108,20 @@ export function RankingStudio({
     setPlayback("listed");
     setOrderIds([]);
     setSelected(0);
-    setMessage(`Loaded “${template.name}”. Add the clips, then open the timeline.`);
+    flashMessage(`Loaded “${template.name}”. Add the clips, then open the timeline.`);
   }
 
   function pasteLines() {
     const lines = importedLines(pasted);
     if (!lines.length) {
-      setMessage("Paste one caption per clip.");
+      flashMessage("Paste one caption per clip.");
       return;
     }
     const ids = slots.map((item) => item.id);
     const startId = slots[selected]?.id ?? ids[0] ?? "";
     const assigned = assignLinesInOrder(ids, lines, startId);
     setSlots((rows) => rows.map((item) => (assigned.has(item.id) ? { ...item, title: assigned.get(item.id) ?? item.title } : item)));
-    setMessage(assigned.size === 1 ? "Put 1 caption on the clips." : `Put ${assigned.size} captions on the clips.`);
+    flashMessage(assigned.size === 1 ? "Put 1 caption on the clips." : `Put ${assigned.size} captions on the clips.`);
   }
 
   function move(step: number) {
@@ -1130,7 +1167,7 @@ export function RankingStudio({
     if (!parent) return null;
     const created = await window.flicks!.createChannel(parent, "Ranking");
     if (!created.ok || !created.dir) {
-      setMessage(created.message ?? "Could not create the channel.");
+      flashMessage(created.message ?? "Could not create the channel.");
       return null;
     }
     setDir(created.dir);
@@ -1141,12 +1178,12 @@ export function RankingStudio({
   async function findClips() {
     const name = subject.trim();
     if (!name) {
-      setMessage("Name a subject.");
+      flashMessage("Name a subject.");
       return;
     }
     const empty = slots.filter((item) => !item.mediaId).length;
     if (!empty) {
-      setMessage("Every rank already has a clip.");
+      flashMessage("Every rank already has a clip.");
       return;
     }
     setBusy(true);
@@ -1157,7 +1194,7 @@ export function RankingStudio({
       setMessage("Finding clips…");
       const result = await window.flicks!.findClips(folder, name, Math.min(SUBJECT_CLIP_COUNT, empty));
       if (!result.ok || !result.clips?.length) {
-        setMessage(result.message ?? "Could not find clips for that subject.");
+        flashMessage(result.message ?? "Could not find clips for that subject.");
         return;
       }
       let placed = 0;
@@ -1174,15 +1211,16 @@ export function RankingStudio({
       });
       if (first >= 0) setSelected(first);
       if (!placed) {
-        setMessage("Every rank already has a clip.");
+        flashMessage("Every rank already has a clip.");
         return;
       }
       const line = subjectLine(name);
       setHeadline(line.headline);
       setAccentWords(line.accent);
-      setMessage(result.workingCopy ? "Working copies are on this computer." : result.message ?? `Found ${placed} clips.`);
+      flashMessage(result.workingCopy ? "Working copies are on this computer." : result.message ?? `Found ${placed} clips.`);
     } finally {
       setBusy(false);
+      dropProgress();
     }
   }
 
@@ -1200,15 +1238,53 @@ export function RankingStudio({
     setSelected(index);
   }
 
+  function setMessage(text: string) {
+    window.clearTimeout(messageTimer.current);
+    setMessageState(text);
+  }
+
   function flashNote(text: string) {
     window.clearTimeout(noteTimer.current);
     setAddNote(text);
     noteTimer.current = window.setTimeout(() => setAddNote(""), 3400);
   }
 
+  function flashMessage(text: string) {
+    window.clearTimeout(messageTimer.current);
+    setMessageState(text);
+    messageTimer.current = window.setTimeout(() => setMessageState(""), 3400);
+  }
+
+  function dropProgress() {
+    setMessageState((current) => (current === "Getting the clip…" || current === "Finding clips…" ? "" : current));
+  }
+
   function clearAddNote() {
     window.clearTimeout(noteTimer.current);
     setAddNote("");
+  }
+
+  function focusHeadlineField(event: { stopPropagation(): void }) {
+    event.stopPropagation();
+    headlineRef.current?.focus();
+  }
+
+  function focusCaptionField(event: { stopPropagation(): void }) {
+    event.stopPropagation();
+    if (!more) {
+      setMore(true);
+      window.setTimeout(() => captionRef.current?.focus(), 0);
+      return;
+    }
+    captionRef.current?.focus();
+  }
+
+  /** Keep the empty phone line clear of the rank shield for every place. */
+  function emptyLineStyle(place: OverlayPlace): { paddingTop?: string; paddingBottom?: string; zIndex: number } | undefined {
+    if (!showRank) return undefined;
+    if (place === "middle") return { paddingBottom: "36%", zIndex: 5 };
+    if (place === "top") return { paddingTop: "20%", zIndex: 5 };
+    return { paddingBottom: "20%", zIndex: 5 };
   }
 
   /** The selected rank when it is empty, otherwise the next empty rank. */
@@ -1280,9 +1356,10 @@ export function RankingStudio({
       }
       landClip(index, result.asset, result.media, result.sourceUrl || url);
       setLinkText("");
-      setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+      flashMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
     } finally {
       setBusy(false);
+      dropProgress();
     }
   }
 
@@ -1306,7 +1383,7 @@ export function RankingStudio({
         return;
       }
       landClip(index, result.asset, result.media);
-      setMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+      flashMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
     } finally {
       setBusy(false);
     }
@@ -1314,7 +1391,7 @@ export function RankingStudio({
 
   async function openTimeline() {
     if (!slots.some((item) => item.mediaId)) {
-      setMessage("Choose at least one clip.");
+      flashMessage("Choose at least one clip.");
       return;
     }
     setBusy(true);
@@ -1327,7 +1404,7 @@ export function RankingStudio({
       if (flickId) {
         const loaded = await window.flicks!.readFlick(folder, flickId);
         if (!loaded.ok || !loaded.flick) {
-          setMessage(loaded.message ?? "Could not open the timeline.");
+          flashMessage(loaded.message ?? "Could not open the timeline.");
           return;
         }
         existing = loaded.flick;
@@ -1336,7 +1413,7 @@ export function RankingStudio({
       if (!shell) {
         const created = await window.flicks!.createFlick(folder, name, "builtin-ranking");
         if (!created.ok || !created.flick) {
-          setMessage(created.message ?? "Could not open the timeline.");
+          flashMessage(created.message ?? "Could not open the timeline.");
           return;
         }
         shell = created.flick;
@@ -1412,7 +1489,7 @@ export function RankingStudio({
           };
       const saved = await window.flicks!.saveFlick(folder, flick);
       if (!saved.ok || !saved.flick) {
-        setMessage(saved.message ?? "Could not save the ranking.");
+        flashMessage(saved.message ?? "Could not save the ranking.");
         return;
       }
       keepDraft.current = false;
@@ -1471,7 +1548,11 @@ export function RankingStudio({
           <span className="timeline-hint">Opens the full timeline</span>
         </div>
       </header>
-      {message && message !== "No file chosen." ? <p className="banner">{message}</p> : null}
+      {message && message !== "No file chosen." ? (
+        <p className="banner" role="status" style={{ pointerEvents: "none" }}>
+          {message}
+        </p>
+      ) : null}
       <div className="studio-body">
         <aside
           className="rail stack rank-rail clip-rail"
@@ -1502,11 +1583,15 @@ export function RankingStudio({
                   type="button"
                   className={index === selected ? (item.mediaId ? "slot on" : "slot is-empty on") : item.mediaId ? "slot" : "slot is-empty"}
                   aria-pressed={index === selected}
-                  onClick={() => selectRank(index)}
+                  onClick={(event) => {
+                    selectRank(index);
+                    const named = event.target instanceof Element ? event.target.closest(".slot-name") : null;
+                    if (named && (item.title.trim() || item.mediaId)) focusCaptionField(event);
+                  }}
                 >
                   <b>#{item.rank}</b>
                   <span className="slot-copy">
-                    <span className="slot-name">
+                    <span className="slot-name" style={item.title.trim() || item.mediaId ? { cursor: "text" } : undefined}>
                       {item.mediaId ? slotListTitle(item.title, item.mediaName) || "Clip" : "Empty"}
                     </span>
                     {item.mediaId ? (
@@ -1570,7 +1655,9 @@ export function RankingStudio({
                   />
                 </>
               ) : (
-                <p className="phone-empty">{slot?.mediaId ? "No preview yet" : "Paste a link or upload a file."}</p>
+                <p className="phone-empty" style={emptyLineStyle(rankPlace)}>
+                  {slot?.mediaId ? "No preview yet" : "Paste a link or upload a file."}
+                </p>
               )}
               {wash ? <div className="phone-warmth" style={{ background: wash }} /> : null}
               {showRank ? (
@@ -1590,13 +1677,37 @@ export function RankingStudio({
                       showRank && rankPlace === "top"
                         ? `calc(${36 + Math.round(rankPx * 1.9) + 16} * 100cqh / 1920)`
                         : undefined,
+                    cursor: "text",
                   }}
+                  onClick={focusHeadlineField}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      focusHeadlineField(event);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Edit headline"
                 >
                   {paint(headlineOnPhone, swatch, accentWords)}
                 </div>
               ) : null}
               {showCaptions && phoneCaption ? (
-                <div className={`phone-clip place-${linePlace}`} style={{ fontFamily: titleFontFamily(font), color: captionSwatch }}>
+                <div
+                  className={`phone-clip place-${linePlace}`}
+                  style={{ fontFamily: titleFontFamily(font), color: captionSwatch, cursor: "text" }}
+                  onClick={focusCaptionField}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      focusCaptionField(event);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Edit caption"
+                >
                   {phoneCaption}
                 </div>
               ) : null}
@@ -1658,19 +1769,41 @@ export function RankingStudio({
           <div className="desk-focus">
             <label className="stack">
               <span>Headline</span>
-              <textarea className="field" rows={2} value={headline} onChange={(event) => setHeadline(event.target.value)} />
+              <textarea
+                ref={headlineRef}
+                className="field"
+                rows={2}
+                value={headline}
+                aria-label="Headline"
+                onChange={(event) => setHeadline(event.target.value)}
+              />
             </label>
             <div className="toggle-line">
               <span>Show the rank number</span>
-              <button type="button" className={showRank ? "switch on" : "switch"} role="switch" aria-checked={showRank} onClick={() => setShowRank((value) => !value)} />
+              <button
+                type="button"
+                className={showRank ? "switch on" : "switch"}
+                role="switch"
+                aria-checked={showRank}
+                aria-label="Show the rank number"
+                onClick={() => setShowRank((value) => !value)}
+              />
             </div>
             <div className="toggle-line">
               <span>Show captions</span>
               <button type="button" className={showCaptions ? "switch on" : "switch"} role="switch" aria-checked={showCaptions} aria-label="Show captions" onClick={() => setShowCaptions((value) => !value)} />
             </div>
           </div>
-          <button type="button" className="more-toggle" aria-expanded={look} onClick={() => setLook((value) => !value)}>
+          <button
+            type="button"
+            className="more-toggle"
+            aria-expanded={look}
+            aria-controls="ranking-look"
+            onClick={() => setLook((value) => !value)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          >
             Look
+            <span aria-hidden="true">{look ? "▾" : "▸"}</span>
           </button>
           {look ? (
             <LookPanel
@@ -1682,7 +1815,6 @@ export function RankingStudio({
               linePlace={linePlace}
               rankColor={rankColor}
               captionColor={lineColor}
-              caption={slot?.title ?? ""}
               onShowRank={() => setShowRank((value) => !value)}
               onShowCaptions={() => setShowCaptions((value) => !value)}
               onRankSize={(size) => setRankSize(rankSizeOf(size))}
@@ -1691,14 +1823,21 @@ export function RankingStudio({
               onLinePlace={setLinePlace}
               onRankColor={setRankColor}
               onCaptionColor={setLineColor}
-              onCaption={(value) => patch({ title: value })}
             />
           ) : null}
-          <button type="button" className="more-toggle" aria-expanded={more} onClick={() => setMore((value) => !value)}>
+          <button
+            type="button"
+            className="more-toggle"
+            aria-expanded={more}
+            aria-controls="ranking-more"
+            onClick={() => setMore((value) => !value)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          >
             More
+            <span aria-hidden="true">{more ? "▾" : "▸"}</span>
           </button>
           {more ? (
-            <div className="more-panel">
+            <div className="more-panel" id="ranking-more">
               <p className="rail-label">Play order</p>
               <div className="order-stack">
                 <button className={playback === "countdown" ? "order-btn on" : "order-btn"} onClick={() => setPlayback("countdown")}>
@@ -1811,7 +1950,13 @@ export function RankingStudio({
                   {slot.mediaName ? <p className="file-note">{slot.mediaName}</p> : null}
                   <label className="stack">
                     <span>Caption</span>
-                    <input className="field" aria-label="Caption" value={slot.title} onChange={(event) => patch({ title: event.target.value })} />
+                    <input
+                      ref={captionRef}
+                      className="field"
+                      aria-label="Caption"
+                      value={slot.title}
+                      onChange={(event) => patch({ title: event.target.value })}
+                    />
                   </label>
                   <div className="stack">
                     <span className="field-label">In and Out</span>
@@ -1899,7 +2044,6 @@ function LookPanel({
   linePlace,
   rankColor,
   captionColor,
-  caption,
   onShowRank,
   onShowCaptions,
   onRankSize,
@@ -1908,7 +2052,6 @@ function LookPanel({
   onLinePlace,
   onRankColor,
   onCaptionColor,
-  onCaption,
 }: {
   showRank: boolean;
   showCaptions: boolean;
@@ -1918,7 +2061,6 @@ function LookPanel({
   linePlace: OverlayPlace;
   rankColor: string;
   captionColor: string;
-  caption: string;
   onShowRank: () => void;
   onShowCaptions: () => void;
   onRankSize: (size: number) => void;
@@ -1927,10 +2069,9 @@ function LookPanel({
   onLinePlace: (place: OverlayPlace) => void;
   onRankColor: (color: string) => void;
   onCaptionColor: (color: string) => void;
-  onCaption: (caption: string) => void;
 }) {
   return (
-    <div className="look-panel">
+    <div className="look-panel" id="ranking-look">
       <div className="toggle-line">
         <span>Show the rank number</span>
         <button type="button" className={showRank ? "switch on" : "switch"} role="switch" aria-checked={showRank} aria-label="Show the rank number" onClick={onShowRank} />
@@ -1945,10 +2086,6 @@ function LookPanel({
       <LookPlace label="Caption place" value={linePlace} onChange={onLinePlace} />
       <LookColor label="Rank number color" value={rankColor} onChange={onRankColor} />
       <LookColor label="Caption color" value={captionColor} onChange={onCaptionColor} />
-      <label className="stack">
-        <span>Caption</span>
-        <input className="field" aria-label="Caption line" value={caption} onChange={(event) => onCaption(event.target.value)} />
-      </label>
     </div>
   );
 }

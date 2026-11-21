@@ -46,10 +46,10 @@ export function StyleFields({
     <div className="style-block">
       <p className="rail-label">Text and style</p>
       <label className="stack">
-        <span>Font</span>
+        <span>Font for the title</span>
         <select
           className="field"
-          aria-label="Font"
+          aria-label="Font for the title"
           value={face}
           style={{ fontFamily: titleFontFamily(face) }}
           onChange={(event) => onFont(event.target.value)}
@@ -62,14 +62,14 @@ export function StyleFields({
         </select>
       </label>
       <label className="stack">
-        <span>Caption size</span>
+        <span>Size of the caption</span>
         <span className="stroke-line">
           <input
             type="range"
             min={LINE_SIZE_MIN}
             max={LINE_SIZE_MAX}
             value={size}
-            aria-label="Caption size"
+            aria-label="Size of the caption"
             onChange={(event) => onLineSize(Number(event.target.value))}
           />
           <input
@@ -78,20 +78,20 @@ export function StyleFields({
             min={LINE_SIZE_MIN}
             max={LINE_SIZE_MAX}
             value={size}
-            aria-label="Caption size amount"
+            aria-label="Size of the caption amount"
             onChange={(event) => onLineSize(Number(event.target.value) || LINE_SIZE_MIN)}
           />
         </span>
       </label>
       <label className="stack">
-        <span>Caption color</span>
+        <span>Color of the caption</span>
         <span className="color-line">
-          <input type="color" value={swatch} aria-label="Caption color" onChange={(event) => onLineColor(event.target.value)} />
+          <input type="color" value={swatch} aria-label="Color of the caption" onChange={(event) => onLineColor(event.target.value)} />
           <input
             className="field hex"
             spellCheck={false}
             value={(lineColor?.trim() || swatch).toUpperCase()}
-            aria-label="Caption color hex"
+            aria-label="Color of the caption hex"
             onChange={(event) => {
               const next = event.target.value.trim();
               onLineColor(next.startsWith("#") ? next : `#${next}`);
@@ -100,7 +100,7 @@ export function StyleFields({
         </span>
       </label>
       <label className="stack">
-        <span>Warmth</span>
+        <span>Cool or warm picture</span>
         <span className="stroke-line warmth-line">
           <span className="warmth-end">Cool</span>
           <input
@@ -108,7 +108,7 @@ export function StyleFields({
             min={WARMTH_MIN}
             max={WARMTH_MAX}
             value={wash}
-            aria-label="Warmth"
+            aria-label="Cool or warm picture"
             onChange={(event) => onWarmth(Number(event.target.value))}
           />
           <span className="warmth-end">Warm</span>

@@ -9,7 +9,7 @@
   font-family: "Segoe UI", "Avenir Next", sans-serif;
 }
 
-/* Toolbar: quiet leave links, one gold action. Save vertical video stays the gold button. */
+/* Toolbar: quiet leave links. Gold stays on timeline Play, not on Save vertical video. */
 .app.canvas-screen .toolbar {
   min-height: 52px;
   padding: 8px 14px;
@@ -46,6 +46,14 @@
   white-space: nowrap;
 }
 
+.app.canvas-screen .encoder-line {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #5c564c;
+}
+
 .app.canvas-screen .toolbar .btn {
   min-height: 34px;
   padding: 4px 10px;
@@ -63,13 +71,13 @@
   color: #1c1915;
 }
 
-.app.canvas-screen .toolbar .btn[aria-label="Export top picture"] {
+.app.canvas-screen .toolbar .btn.export-cut {
   border: 1px solid #e6dfd2;
   background: #fffdf8;
   color: #1c1915;
 }
 
-.app.canvas-screen .toolbar .btn[aria-label="Export top picture"]:hover {
+.app.canvas-screen .toolbar .btn.export-cut:hover {
   background: #f8f1e3;
   border-color: #1c1915;
   color: #1c1915;
@@ -78,19 +86,19 @@
 .app.canvas-screen .toolbar .btn-primary {
   min-height: 40px;
   padding: 8px 16px;
-  background: #e2b340;
+  background: #fffdf8;
   color: #1c1915;
-  border: 1px solid #c9a15b;
+  border: 1px solid #e6dfd2;
   border-radius: 999px;
   font-size: 15px;
   font-weight: 750;
-  box-shadow: 0 8px 18px rgba(226, 179, 64, 0.28);
+  box-shadow: none;
 }
 
 .app.canvas-screen .toolbar .btn-primary:hover {
-  background: #d4a433;
+  background: #f8f1e3;
   color: #1c1915;
-  border-color: #c9a15b;
+  border-color: #1c1915;
 }
 
 .app.canvas-screen .toolbar-youtube {
@@ -225,8 +233,8 @@
   height: 26px;
   padding: 0 8px;
   border-radius: 999px;
-  border: 1px solid #c9a15b;
-  background: #e2b340;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
   color: #1c1915;
   font-size: 12px;
   font-weight: 750;

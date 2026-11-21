@@ -228,9 +228,10 @@ test("paper display locks the frame, play button, rank block, and playhead", () 
 test("the cut export button names the top picture it writes", () => {
   const screen = readFileSync(fileURLToPath(new URL("../src/ui/CanvasScreen.tsx", import.meta.url)), "utf8");
   assert.match(screen, /Save vertical video/);
-  assert.match(screen, /Export top picture/);
+  assert.match(screen, /Export cut · keeps the top picture/);
+  assert.match(screen, /: "Export cut"/);
   assert.equal(screen.includes("Export styled"), false);
-  assert.equal(screen.includes("Export cut"), false);
+  assert.equal(screen.includes("Export top picture"), false);
   assert.match(screen, /exportFlick\("cut"\)/);
   assert.match(screen, /exportFlick\("styled"\)/);
   assert.match(screen, /YouTube title and description/);
@@ -258,7 +259,9 @@ test("the cut export button names the top picture it writes", () => {
   assert.match(screen, /Add to the background/);
   assert.match(screen, /Use as the video/);
   assert.match(screen, /Add to the video/);
+  assert.match(screen, /aria-label="Encoder">\{encoder\}/);
   assert.equal(screen.includes("Encoder: {encoder}"), false);
+  assert.match(screen, /builtin-dual" \? "Dual video" : "Split"/);
   assert.match(screen, /If that track is already full, this adds a cut at the end/);
   assert.match(screen, /Write a line first/);
 });

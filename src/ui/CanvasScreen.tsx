@@ -1419,13 +1419,14 @@ export function CanvasScreen({
             </div>
           ) : null}
         </div>
+        <span className="encoder-line tiny muted" aria-label="Encoder">{encoder}</span>
         <span className="spacer" />
         <button className="btn" onClick={onConnections}>
           Connections
         </button>
         {DESK_TEMPLATES.has(flick.templateId ?? "") ? (
           <button type="button" className="btn" onClick={() => onOpenDesk?.()}>
-            {flick.templateId === "builtin-ranking" ? "Ranking" : "Split"}
+            {flick.templateId === "builtin-ranking" ? "Ranking" : flick.templateId === "builtin-dual" ? "Dual video" : "Split"}
           </button>
         ) : null}
         <button
@@ -1451,14 +1452,14 @@ export function CanvasScreen({
           {moreOpen ? (
             <div className="toolbar-more-menu">
               <button
-                className="btn"
+                className="btn export-cut"
                 type="button"
                 title="Writes the top picture only. Captions, headlines, ranks, and clip audio are not in that file. Sound is the voice and the music."
-                aria-label="Export top picture"
+                aria-label={regions.length > 1 ? "Export cut · keeps the top picture" : "Export cut"}
                 disabled={encoder === "ffmpeg missing" || Boolean(busy)}
                 onClick={() => void exportFlick("cut")}
               >
-                Export top picture
+                {regions.length > 1 ? "Export cut · keeps the top picture" : "Export cut"}
               </button>
               <label className="stack">
                 <span>Voice account</span>
@@ -2045,7 +2046,8 @@ export function CanvasScreen({
             </div>
           ) : null}
           <p className="muted">
-            Save vertical video makes the phone video, with the clips, the words, and the voice. Export top picture, under More, keeps only the top picture.
+            Save vertical video makes the phone video, with the clips, the words, and the voice.{" "}
+            {regions.length > 1 ? "Export cut, under More, keeps the top picture." : "Export cut, under More, writes this picture."}
           </p>
           <button className="btn" onClick={() => setSavingTemplate(true)}>
             Save as template

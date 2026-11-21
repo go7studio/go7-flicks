@@ -12,7 +12,6 @@ import { builtinTemplates, flickFromTemplate, rankingClipRange, spokenLine } fro
 import { clipsFromSearch, pickSubjectClips, placeFoundClips, skipSubjectTitle } from "../src/shared/subject";
 import { captionFromFile } from "../src/remotion/FlickComposition";
 import {
-  CUT_BUTTON,
   DUAL_LABELS,
   HOME_LABELS,
   GTA_EXPORT_NAME,
@@ -105,7 +104,8 @@ test("a new ranking frame is 1080 by 1920", () => {
 test("the canvas can invoke the cut export and the styled export", () => {
   assert.match(canvas, new RegExp(`exportFlick\\("cut"\\)`));
   assert.match(canvas, new RegExp(`exportFlick\\("styled"\\)`));
-  assert.match(canvas, new RegExp(CUT_BUTTON));
+  assert.match(canvas, /Export cut · keeps the top picture/);
+  assert.match(canvas, /"Export cut"/);
   assert.match(canvas, new RegExp(STYLED_BUTTON));
 });
 
