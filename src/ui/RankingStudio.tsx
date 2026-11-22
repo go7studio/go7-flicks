@@ -1828,6 +1828,7 @@ export function RankingStudio({
               nowSec={slot.previewUrl ? nowSec : 0}
               looping={playing && looping}
               canPreview={Boolean(slot.previewUrl)}
+              previewUrl={slot.previewUrl}
               onStart={(sec) => {
                 const range = fitHandRange(sec, slot.outSec, slot.duration);
                 commitRange(slot.id, range, range.inSec);
@@ -1857,6 +1858,7 @@ export function RankingStudio({
               sequence={filmOrder.map((item) => ({
                 id: item.id,
                 label: `#${item.rank}`,
+                name: slotListTitle(item.title, item.mediaName),
                 lengthSec: Math.max(0, item.outSec - item.inSec),
                 active: item.id === slot.id,
               }))}
@@ -2164,6 +2166,87 @@ export function RankingStudio({
   );
 }
 
+function shortClock(seconds: number): string {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const total = Math.round(safe);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Still frames across the whole file, so the strip shows the scenes being cut. */
+function useClipFrames(url: string | null, duration: number): string[] {
+  const [frames, setFrames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!url || !(duration > 0)) {
+      setFrames([]);
+      return;
+    }
+    let cancel = false;
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.crossOrigin = "anonymous";
+    const count = Math.min(18, Math.max(8, Math.ceil(duration / 3)));
+    const canvas = document.createElement("canvas");
+    const shots: string[] = [];
+    const finish = () => {
+      if (!cancel) setFrames(shots.filter(Boolean));
+      video.removeAttribute("src");
+      video.load();
+    };
+    const draw = (index: number) => {
+      if (cancel) return;
+      const width = video.videoWidth || 160;
+      const height = video.videoHeight || 90;
+      const scale = 96 / Math.max(height, 1);
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = 96;
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      try {
+        shots.push(canvas.toDataURL("image/jpeg", 0.72));
+      } catch {
+        shots.push("");
+      }
+      grab(index + 1);
+    };
+    const grab = (index: number) => {
+      if (cancel || index >= count) {
+        finish();
+        return;
+      }
+      const t = Math.min(Math.max(duration - 0.05, 0), ((index + 0.5) / count) * Math.max(duration - 0.05, 0));
+      if (video.readyState >= 2 && Math.abs(video.currentTime - t) < 0.04) {
+        draw(index);
+        return;
+      }
+      const onSeek = () => {
+        video.removeEventListener("seeked", onSeek);
+        if (!cancel) draw(index);
+      };
+      video.addEventListener("seeked", onSeek);
+      try {
+        video.currentTime = t;
+      } catch {
+        video.removeEventListener("seeked", onSeek);
+        finish();
+      }
+    };
+    const onReady = () => {
+      video.removeEventListener("loadeddata", onReady);
+      if (!cancel) grab(0);
+    };
+    video.addEventListener("loadeddata", onReady);
+    video.src = url;
+    return () => {
+      cancel = true;
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [url, duration]);
+  return frames;
+}
+
 function ClipRange({
   slotId,
   duration,
@@ -2172,6 +2255,7 @@ function ClipRange({
   nowSec,
   looping,
   canPreview,
+  previewUrl,
   onStart,
   onEnd,
   onShift,
@@ -2190,6 +2274,7 @@ function ClipRange({
   nowSec: number;
   looping: boolean;
   canPreview: boolean;
+  previewUrl: string | null;
   onStart: (sec: number) => void;
   onEnd: (sec: number) => void;
   onShift: (delta: number, originIn: number, originOut: number) => void;
@@ -2198,14 +2283,83 @@ function ClipRange({
   onAnother: () => void;
   onPlace: (sec: number, span: number) => void;
   onPick: (id: string) => void;
-  sequence: { id: string; label: string; lengthSec: number; active: boolean }[];
+  sequence: { id: string; label: string; name: string; lengthSec: number; active: boolean }[];
   others: { id: string; inSec: number; outSec: number }[];
 }) {
   const barRef = useRef<HTMLDivElement>(null);
+  const peekRef = useRef<HTMLVideoElement>(null);
+  const peekBusy = useRef(false);
+  const peekWant = useRef<number | null>(null);
+  const dragging = useRef(false);
+  const overFilm = useRef(false);
+  const frames = useClipFrames(previewUrl, duration);
+  const [peek, setPeek] = useState<{ x: number; sec: number } | null>(null);
   const span = Math.max(duration, 0.001);
   const startPct = (Math.min(span, Math.max(0, inSec)) / span) * 100;
   const endPct = (Math.min(span, Math.max(0, outSec)) / span) * 100;
   const nowPct = (Math.min(span, Math.max(0, nowSec)) / span) * 100;
+  const peekStill = peek && frames.length ? frames[Math.min(frames.length - 1, Math.max(0, Math.floor((peek.sec / span) * frames.length)))] : "";
+
+  useEffect(() => {
+    const video = peekRef.current;
+    if (!video || !previewUrl) return;
+    if (video.src !== previewUrl) video.src = previewUrl;
+  }, [previewUrl]);
+
+  function seekPeek(sec: number) {
+    const video = peekRef.current;
+    if (!video || !previewUrl) return;
+    const safe = Math.min(Math.max(sec, 0), Math.max(duration - 0.05, 0));
+    peekWant.current = safe;
+    if (peekBusy.current) return;
+    const step = () => {
+      const next = peekWant.current;
+      const node = peekRef.current;
+      if (next == null || !node) {
+        peekBusy.current = false;
+        return;
+      }
+      peekWant.current = null;
+      if (node.readyState < 1) {
+        peekBusy.current = true;
+        const onLoad = () => {
+          node.removeEventListener("loadeddata", onLoad);
+          peekBusy.current = false;
+          peekWant.current = next;
+          step();
+        };
+        node.addEventListener("loadeddata", onLoad);
+        return;
+      }
+      if (Math.abs(node.currentTime - next) < 0.07) {
+        peekBusy.current = false;
+        return;
+      }
+      peekBusy.current = true;
+      const finish = () => {
+        node.removeEventListener("seeked", finish);
+        peekBusy.current = false;
+        if (peekWant.current != null) step();
+      };
+      node.addEventListener("seeked", finish);
+      try {
+        node.currentTime = next;
+      } catch {
+        node.removeEventListener("seeked", finish);
+        peekBusy.current = false;
+      }
+    };
+    step();
+  }
+
+  function reveal(clientX: number, sec: number) {
+    const bar = barRef.current;
+    if (!bar || !previewUrl) return;
+    const bounds = bar.getBoundingClientRect();
+    const x = clientX - bounds.left;
+    setPeek({ x: Math.min(Math.max(bounds.width - 84, 84), Math.max(84, x)), sec });
+    seekPeek(sec);
+  }
 
   function secondsAt(clientX: number): number {
     const bar = barRef.current;
@@ -2223,8 +2377,13 @@ function ClipRange({
     const originIn = inSec;
     const originOut = outSec;
     const clipSpan = Math.max(0.1, originOut - originIn);
-    if (kind === "place") onPlace(secondsAt(event.clientX), clipSpan);
+    dragging.current = true;
+    const sec = secondsAt(event.clientX);
+    if (kind === "place") onPlace(sec, clipSpan);
+    reveal(event.clientX, sec);
     const move = (ev: PointerEvent) => {
+      const at = secondsAt(ev.clientX);
+      reveal(ev.clientX, at);
       if (kind === "window") {
         const bar = barRef.current;
         if (!bar) return;
@@ -2232,12 +2391,13 @@ function ClipRange({
         onShift(((ev.clientX - originX) / width) * duration, originIn, originOut);
         return;
       }
-      const sec = secondsAt(ev.clientX);
-      if (kind === "place") onPlace(sec, span);
-      else if (kind === "start") onStart(sec);
-      else onEnd(sec);
+      if (kind === "place") onPlace(at, clipSpan);
+      else if (kind === "start") onStart(at);
+      else onEnd(at);
     };
     const up = () => {
+      dragging.current = false;
+      if (!overFilm.current) setPeek(null);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
@@ -2256,63 +2416,71 @@ function ClipRange({
 
   return (
     <div className="clip-range">
-      {sequence.length > 1 ? (
-        <div className="clip-sequence" role="list" aria-label="Clip sequence">
-          {sequence.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="listitem"
-              className={item.active ? "clip-sequence-block on" : "clip-sequence-block"}
-              style={{ flexGrow: Math.max(item.lengthSec, 0.4) }}
-              aria-pressed={item.active}
-              onClick={() => onPick(item.id)}
-            >
-              <b>{item.label}</b>
-              <span>{shortClock(item.lengthSec)}</span>
-            </button>
-          ))}
+      <div className="clip-film">
+        <div
+          className={peek ? "clip-peek" : "clip-peek is-hidden"}
+          style={peek ? { left: peek.x } : undefined}
+          aria-hidden="true"
+        >
+          <div className="clip-peek-stage">
+            {peekStill ? <img src={peekStill} alt="" /> : null}
+            <video ref={peekRef} muted playsInline preload="auto" />
+          </div>
+          <span>{peek ? formatClock(peek.sec) : ""}</span>
         </div>
-      ) : null}
-      <div
-        className="clip-film"
-        ref={barRef}
-        role="group"
-        aria-label="Clip range"
-        onPointerDown={(event) => {
-          if ((event.target as HTMLElement).closest(".clip-film-other, .clip-range-handle")) return;
-          const sec = secondsAt(event.clientX);
-          if (sec >= inSec && sec <= outSec) begin(event, "window");
-          else begin(event, "place");
-        }}
-      >
-        <div className="clip-film-frames" />
-        <div className="clip-film-shade" style={{ width: `${startPct}%` }} />
-        <div className="clip-film-shade is-right" style={{ left: `${endPct}%`, width: `${Math.max(0, 100 - endPct)}%` }} />
-        {others.map((item) => {
-          const left = (Math.min(span, Math.max(0, item.inSec)) / span) * 100;
-          const right = (Math.min(span, Math.max(0, item.outSec)) / span) * 100;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              className="clip-film-other"
-              style={{ left: `${left}%`, width: `${Math.max(0, right - left)}%` }}
-              aria-label="Other sequence on this video"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onPick(item.id);
-              }}
-            />
-          );
-        })}
-        <div className="clip-film-window" style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}>
-          {endPct - startPct > 18 ? <span>Clip</span> : null}
+        <div
+          className="clip-film-well"
+          ref={barRef}
+          role="group"
+          aria-label="Clip range"
+          onPointerEnter={() => {
+            overFilm.current = true;
+          }}
+          onPointerLeave={() => {
+            overFilm.current = false;
+            if (!dragging.current) setPeek(null);
+          }}
+          onPointerMove={(event) => {
+            if (dragging.current) return;
+            reveal(event.clientX, secondsAt(event.clientX));
+          }}
+          onPointerDown={(event) => {
+            if ((event.target as HTMLElement).closest(".clip-film-other, .clip-range-handle")) return;
+            const sec = secondsAt(event.clientX);
+            if (sec >= inSec && sec <= outSec) begin(event, "window");
+            else begin(event, "place");
+          }}
+        >
+          <div className="clip-film-frames">
+            {frames.length ? frames.map((src, index) => <img key={index} src={src} alt="" />) : null}
+          </div>
+          <div className="clip-film-shade" style={{ width: `${startPct}%` }} />
+          <div className="clip-film-shade is-right" style={{ left: `${endPct}%`, width: `${Math.max(0, 100 - endPct)}%` }} />
+          {others.map((item) => {
+            const left = (Math.min(span, Math.max(0, item.inSec)) / span) * 100;
+            const right = (Math.min(span, Math.max(0, item.outSec)) / span) * 100;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="clip-film-other"
+                style={{ left: `${left}%`, width: `${Math.max(0, right - left)}%` }}
+                aria-label="Other sequence on this video"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onPick(item.id);
+                }}
+              />
+            );
+          })}
+          <div className="clip-film-window" style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}>
+            {endPct - startPct > 18 ? <span>Clip</span> : null}
+          </div>
+          <span className="clip-range-playhead" style={{ left: `${nowPct}%` }} />
+          <span className="clip-film-clock is-start">{shortClock(0)}</span>
+          <span className="clip-film-clock is-end">{shortClock(duration)}</span>
         </div>
-        <span className="clip-range-playhead" style={{ left: `${nowPct}%` }} />
-        <span className="clip-film-clock is-start">{shortClock(0)}</span>
-        <span className="clip-film-clock is-end">{shortClock(duration)}</span>
         <button
           type="button"
           className="clip-range-handle is-start"
@@ -2340,6 +2508,25 @@ function ClipRange({
           onKeyDown={(event) => nudge("end", event)}
         />
       </div>
+      {sequence.length > 1 ? (
+        <div className="clip-sequence" role="list" aria-label="Clip sequence">
+          {sequence.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="listitem"
+              className={item.active ? "clip-sequence-block on" : "clip-sequence-block"}
+              style={{ flexGrow: Math.max(item.lengthSec, 0.4) }}
+              aria-pressed={item.active}
+              onClick={() => onPick(item.id)}
+            >
+              <b>{item.label}</b>
+              {item.name ? <span className="clip-sequence-name">{item.name}</span> : null}
+              <span>{shortClock(item.lengthSec)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="clip-range-times">
         <ClockField key={`${slotId}-start`} label="Start" value={inSec} onCommit={onStart} />
         <ClockField key={`${slotId}-end`} label="End" value={outSec} onCommit={onEnd} />
@@ -2351,7 +2538,7 @@ function ClipRange({
           onCommit={onLength}
         />
       </div>
-      <p className="clip-range-note">The video is downloaded. Drag the ends to clip this sequence, or slide the middle to move it.</p>
+      <p className="clip-range-note">The pictures are the whole video. Point along them to see that moment, then drag the ends around the part you want.</p>
       <div className="clip-range-actions">
         <button type="button" className="btn clip-range-preview" disabled={!canPreview} onClick={onPreview}>
           {looping ? "Pause" : "Preview selection"}

@@ -998,60 +998,230 @@
   outline-offset: 2px;
 }
 
-.ranking .stage-wrap:has(.clip-range) .phone {
-  height: min(520px, calc(100vh - 420px));
+html:not([data-go7-host="mobile"]) .ranking .stage-wrap:has(.clip-range) .phone-stage {
+  max-height: none;
+  flex: none;
+}
+
+html:not([data-go7-host="mobile"]) .ranking .stage-wrap:has(.clip-range) .phone {
+  height: 280px;
+  width: auto;
+  aspect-ratio: 9 / 16;
+  flex: none;
 }
 
 .studio .clip-range {
-  width: min(380px, 100%);
+  position: relative;
+  z-index: 3;
+  width: min(640px, 100%);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
 }
 
-.studio .clip-range-bar {
-  position: relative;
-  height: 36px;
-  border-radius: 999px;
-  background: #efe8da;
+.studio .clip-sequence {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.studio .clip-sequence-block {
+  min-width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 12px;
   border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  color: #1c1915;
+  cursor: pointer;
+}
+
+.studio .clip-sequence-block.on {
+  background: #e2b340;
+  border-color: #c9962a;
+}
+
+.studio .clip-sequence-block b {
+  font-size: 14px;
+}
+
+.studio .clip-sequence-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.studio .clip-sequence-block span {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.studio .clip-film {
+  position: relative;
+  margin-top: 120px;
   touch-action: none;
   user-select: none;
 }
 
-.studio .clip-range-window {
+.studio .clip-film-well {
+  position: relative;
+  box-sizing: border-box;
+  height: 84px;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid #1c1915;
+  background: #2c2823;
+  cursor: ew-resize;
+}
+
+.studio .clip-film-frames {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, #4a433a 0 54px, #1c1915 54px 58px);
+}
+
+.studio .clip-film-frames img {
+  flex: 1 1 0;
+  width: 0;
+  height: 100%;
+  object-fit: cover;
+}
+
+.studio .clip-film-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(28, 25, 21, 0.62);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.studio .clip-film-other {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 2px dashed #fffdf8;
+  background: transparent;
+  padding: 0;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.studio .clip-film-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 2px solid #e2b340;
+  box-shadow: inset 0 0 0 1px rgba(226, 179, 64, 0.45);
+  pointer-events: none;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.studio .clip-film-window span {
+  margin-bottom: 4px;
+  padding: 1px 6px;
   border-radius: 999px;
   background: #e2b340;
+  color: #1c1915;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.studio .clip-film-clock {
+  position: absolute;
+  bottom: 4px;
+  z-index: 4;
+  color: #fffdf8;
+  font-size: 11px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px #1c1915;
   pointer-events: none;
+}
+
+.studio .clip-film-clock.is-start { left: 6px; }
+.studio .clip-film-clock.is-end { right: 6px; }
+
+.studio .clip-peek {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  z-index: 6;
+  width: 168px;
+  transform: translateX(-50%);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid #e2b340;
+  background: #1c1915;
+  box-shadow: 0 10px 24px rgba(28, 25, 21, 0.28);
+  pointer-events: none;
+}
+
+.studio .clip-peek.is-hidden {
+  display: none;
+}
+
+.studio .clip-peek-stage {
+  position: relative;
+  height: 84px;
+  background: #1c1915;
+}
+
+.studio .clip-peek-stage img,
+.studio .clip-peek-stage video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.studio .clip-peek span {
+  display: block;
+  padding: 4px 6px 6px;
+  color: #fffdf8;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .studio .clip-range-playhead {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: 0;
+  bottom: 0;
   width: 2px;
   margin-left: -1px;
-  background: #1c1915;
+  background: #fffdf8;
   pointer-events: none;
+  z-index: 4;
 }
 
 .studio .clip-range-handle {
   position: absolute;
-  top: 1px;
-  width: 16px;
-  height: 32px;
+  top: 10px;
+  width: 18px;
+  height: 64px;
   margin: 0;
   padding: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #1c1915;
   background: #fffdf8;
   transform: translateX(-50%);
   cursor: ew-resize;
-  z-index: 2;
+  z-index: 5;
+  box-shadow: 0 1px 4px rgba(28, 25, 21, 0.25);
 }
 
 .studio .clip-range-times {

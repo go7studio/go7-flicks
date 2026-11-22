@@ -92,7 +92,8 @@ test("the ranking desk says what find clips and which clip do", () => {
   assert.match(ranking, /Starts over\. Rankings you already saved stay in this channel\./);
   assert.equal(ranking.includes("Add a clip"), false);
   assert.equal(ranking.includes("Empty slot"), false);
-  assert.equal((ranking.match(/<video/g) ?? []).length, 2);
+  assert.equal((ranking.match(/<video/g) ?? []).length, 3);
+  assert.match(ranking, /clip-peek/);
 });
 
 test("a pasted clip can use any part of the file", () => {
