@@ -1,7 +1,7 @@
 {
   "name": "go7-flicks",
   "productName": "Go7Flicks",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Local channels, a canvas that starts from a template, and your own API keys. Windows and Mac.",
   "author": "Go7 Studio",
