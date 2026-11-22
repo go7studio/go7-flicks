@@ -1,0 +1,842 @@
+/* Phone layout for the APK shell. Keel sets data-go7-host="mobile" on <html>.
+   Every selector below includes that attribute. If it is absent, this file matches nothing. */
+
+html[data-go7-host="mobile"] {
+  background: #f7f3ea;
+  color: #1c1915;
+}
+
+html[data-go7-host="mobile"],
+html[data-go7-host="mobile"] body,
+html[data-go7-host="mobile"] #root {
+  max-width: 100%;
+  background: #f7f3ea;
+  color: #1c1915;
+}
+
+html[data-go7-host="mobile"] body {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html[data-go7-host="mobile"] #root {
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+html[data-go7-host="mobile"] input,
+html[data-go7-host="mobile"] select,
+html[data-go7-host="mobile"] textarea,
+html[data-go7-host="mobile"] .field {
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+html[data-go7-host="mobile"] select,
+html[data-go7-host="mobile"] textarea,
+html[data-go7-host="mobile"] .field {
+  min-height: 44px;
+}
+
+html[data-go7-host="mobile"] input[type="color"],
+html[data-go7-host="mobile"] .swatch {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+html[data-go7-host="mobile"] button,
+html[data-go7-host="mobile"] .btn,
+html[data-go7-host="mobile"] .btn-primary,
+html[data-go7-host="mobile"] .btn-ghost,
+html[data-go7-host="mobile"] .btn-danger,
+html[data-go7-host="mobile"] .btn-small,
+html[data-go7-host="mobile"] .btn-gold,
+html[data-go7-host="mobile"] summary {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+/* Gold fill stays on Play. Other primaries are paper cards with a hairline. */
+html[data-go7-host="mobile"] .btn-primary,
+html[data-go7-host="mobile"] .btn-gold,
+html[data-go7-host="mobile"] .start-cta,
+html[data-go7-host="mobile"] .lib-open,
+html[data-go7-host="mobile"] .ch-actions .btn-primary,
+html[data-go7-host="mobile"] .toolbar .btn-primary {
+  background: #fffdf8;
+  color: #1c1915;
+  border: 1px solid #e6dfd2;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .btn-primary:hover,
+html[data-go7-host="mobile"] .lib-card:hover .lib-open,
+html[data-go7-host="mobile"] .ch-actions .btn-primary:hover,
+html[data-go7-host="mobile"] .toolbar .btn-primary:hover {
+  background: #f8f1e3;
+  color: #1c1915;
+  border-color: #1c1915;
+}
+
+html[data-go7-host="mobile"] .page {
+  max-width: 100%;
+  overflow-x: hidden;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px calc(28px + env(safe-area-inset-bottom, 0px));
+}
+
+html[data-go7-host="mobile"] .banner {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+html[data-go7-host="mobile"] .modal-back {
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  align-items: flex-end;
+}
+
+html[data-go7-host="mobile"] .modal {
+  width: 100%;
+  max-height: min(88vh, 100%);
+  overflow: auto;
+}
+
+html[data-go7-host="mobile"] .cards,
+html[data-go7-host="mobile"] .clean-cols {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-go7-host="mobile"] .actions .btn,
+html[data-go7-host="mobile"] .actions .btn-primary {
+  min-height: 44px;
+}
+
+/* Home, Library, Connections share StartShell. */
+html[data-go7-host="mobile"] .shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  background: #f7f3ea;
+}
+
+html[data-go7-host="mobile"] .side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  overflow: visible;
+  border-right: 0;
+  border-bottom: 1px solid #e6dfd2;
+  background: #fffdf8;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) 8px calc(12px + env(safe-area-inset-left, 0px));
+}
+
+html[data-go7-host="mobile"] .side-brand {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+html[data-go7-host="mobile"] .side-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  flex: 1 1 100%;
+}
+
+html[data-go7-host="mobile"] .side button {
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 6px;
+  font-size: 16px;
+  text-align: center;
+}
+
+html[data-go7-host="mobile"] .dash {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 8px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: #f7f3ea;
+}
+
+html[data-go7-host="mobile"] .start-home,
+html[data-go7-host="mobile"] .lib-page,
+html[data-go7-host="mobile"] .conn-page {
+  max-width: 100%;
+  padding-top: 8px;
+}
+
+html[data-go7-host="mobile"] .start-hello,
+html[data-go7-host="mobile"] .lib-page h1,
+html[data-go7-host="mobile"] .conn-page h1,
+html[data-go7-host="mobile"] .ch-page h1,
+html[data-go7-host="mobile"] .ch-title,
+html[data-go7-host="mobile"] .ch-title-edit {
+  font-size: 28px;
+  overflow-wrap: anywhere;
+}
+
+html[data-go7-host="mobile"] .start-modes {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+html[data-go7-host="mobile"] .start-modes .btn,
+html[data-go7-host="mobile"] .start-modes .btn-primary {
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 8px 6px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .start-modes .btn-primary,
+html[data-go7-host="mobile"] .start-modes .btn-primary:hover {
+  background: #f8f1e3;
+  color: #1c1915;
+  border-color: transparent;
+}
+
+html[data-go7-host="mobile"] .start-mode-go {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .start-pair {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+html[data-go7-host="mobile"] .start-primary {
+  width: 100%;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+}
+
+html[data-go7-host="mobile"] .start-primary .art {
+  height: 128px;
+}
+
+html[data-go7-host="mobile"] .start-primary strong {
+  font-size: 22px;
+}
+
+html[data-go7-host="mobile"] .start-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 18px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .mini-phone {
+  width: 88px;
+  height: 120px;
+  border-radius: 16px;
+  border: 1px solid #e6dfd2;
+  background: #fffdf8;
+  box-shadow: none;
+  color: #1c1915;
+}
+
+html[data-go7-host="mobile"] .mini-phone::before,
+html[data-go7-host="mobile"] .mini-rank {
+  display: none;
+}
+
+html[data-go7-host="mobile"] .mini-title,
+html[data-go7-host="mobile"] .mini-cap {
+  color: #1c1915;
+  text-shadow: none;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .mini-split,
+html[data-go7-host="mobile"] .mini-split span,
+html[data-go7-host="mobile"] .mini-split span:first-child,
+html[data-go7-host="mobile"] .mini-split span:last-child {
+  background: #fffdf8;
+  color: #1c1915;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .mini-split span + span {
+  border-top: 1px solid #e6dfd2;
+}
+
+html[data-go7-host="mobile"] .tiny,
+html[data-go7-host="mobile"] .muted.tiny,
+html[data-go7-host="mobile"] .lib-when,
+html[data-go7-host="mobile"] .ch-when,
+html[data-go7-host="mobile"] .ch-fold > summary,
+html[data-go7-host="mobile"] .ch-go {
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .lib-head,
+html[data-go7-host="mobile"] .lib-create,
+html[data-go7-host="mobile"] .lib-copies,
+html[data-go7-host="mobile"] .lib-copy-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+html[data-go7-host="mobile"] .lib-create .field,
+html[data-go7-host="mobile"] .lib-name-edit {
+  width: 100%;
+  max-width: 100%;
+}
+
+html[data-go7-host="mobile"] .lib-name {
+  font-size: 22px;
+}
+
+html[data-go7-host="mobile"] .lib-cards {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-go7-host="mobile"] .lib-open,
+html[data-go7-host="mobile"] .lib-hide,
+html[data-go7-host="mobile"] .conn-back {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .lib-hide {
+  min-width: 44px;
+  color: #1c1915;
+}
+
+html[data-go7-host="mobile"] .conn-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-go7-host="mobile"] .conn-key .field,
+html[data-go7-host="mobile"] .conn-voice .field {
+  width: 100%;
+}
+
+/* Channel is its own page, outside the start shell. */
+html[data-go7-host="mobile"] .ch-page {
+  max-width: 100%;
+}
+
+html[data-go7-host="mobile"] .ch-head,
+html[data-go7-host="mobile"] .ch-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+html[data-go7-host="mobile"] .ch-actions,
+html[data-go7-host="mobile"] .ch-card-actions {
+  justify-content: flex-start;
+  padding-top: 0;
+}
+
+html[data-go7-host="mobile"] .ch-back,
+html[data-go7-host="mobile"] .ch-go,
+html[data-go7-host="mobile"] .ch-actions .btn,
+html[data-go7-host="mobile"] .ch-card-actions .btn,
+html[data-go7-host="mobile"] .ch-card-actions .btn-danger {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .ch-flick-edit {
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .ch-page .swatch {
+  width: 44px;
+  height: 44px;
+}
+
+/* Ranking and Dual video desks. Picture, then the two side columns. */
+html[data-go7-host="mobile"] .studio {
+  height: 100%;
+  max-height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  background: #f7f3ea;
+  color: #1c1915;
+}
+
+html[data-go7-host="mobile"] .studio .rank-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 100%;
+  background: #fffdf8;
+  border-bottom: 1px solid #e6dfd2;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) 8px calc(12px + env(safe-area-inset-left, 0px));
+}
+
+html[data-go7-host="mobile"] .studio .home-back {
+  order: 1;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .studio .rank-title {
+  order: 2;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: flex-start;
+}
+
+html[data-go7-host="mobile"] .studio .rank-title strong {
+  font-size: 18px;
+}
+
+html[data-go7-host="mobile"] .studio .timeline-hint,
+html[data-go7-host="mobile"] .studio .desk-note,
+html[data-go7-host="mobile"] .studio .rail-label,
+html[data-go7-host="mobile"] .studio .rank-inspector label.stack > span,
+html[data-go7-host="mobile"] .studio .rank-inspector .field-label,
+html[data-go7-host="mobile"] .studio .clip-file,
+html[data-go7-host="mobile"] .studio .desk-share,
+html[data-go7-host="mobile"] .studio .desk-clock {
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .studio .timeline-open {
+  order: 3;
+  flex: 1 1 100%;
+  align-items: stretch;
+}
+
+html[data-go7-host="mobile"] .studio .timeline-open .btn-gold,
+html[data-go7-host="mobile"] .studio .timeline-open .btn-gold:hover {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+  font-size: 16px;
+  background: #fffdf8;
+  color: #1c1915;
+  border: 1px solid #e6dfd2;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .studio .studio-body,
+html[data-go7-host="mobile"] .studio.ranking .studio-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: #f7f3ea;
+}
+
+html[data-go7-host="mobile"] .studio .stage-wrap {
+  order: 1;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 12px 12px 8px;
+  background: #f7f3ea;
+}
+
+html[data-go7-host="mobile"] .studio .phone-stage,
+html[data-go7-host="mobile"] .studio .phone-column {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  min-height: 0;
+}
+
+html[data-go7-host="mobile"] .studio .phone,
+html[data-go7-host="mobile"] .studio.ranking .phone,
+html[data-go7-host="mobile"] .ranking .phone {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 9 / 16;
+  margin: 0 auto;
+  background: #fffdf8;
+  border: 1px solid #e2b340;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .studio .desk-play {
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+html[data-go7-host="mobile"] .studio .desk-play .btn-gold,
+html[data-go7-host="mobile"] .studio .desk-play .btn-gold:hover {
+  width: auto;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 10px 22px;
+  font-size: 16px;
+  background: #e2b340;
+  color: #1c1915;
+  border: 1px solid #c9a15b;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .studio .desk-play .btn-gold:hover {
+  background: #d4a433;
+}
+
+html[data-go7-host="mobile"] .studio .rank-rail,
+html[data-go7-host="mobile"] .studio .rank-inspector {
+  order: 2;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  border-right: 0;
+  border-left: 0;
+  border-top: 1px solid #e6dfd2;
+  background: #fffdf8;
+}
+
+html[data-go7-host="mobile"] .studio .rank-inspector {
+  order: 3;
+}
+
+html[data-go7-host="mobile"] .studio .rank-rail.clip-rail {
+  overflow: visible;
+  height: auto;
+}
+
+html[data-go7-host="mobile"] .studio .clip-rail:not([data-clips-sized]) .rank-clips {
+  flex: none;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+html[data-go7-host="mobile"] .studio .rank-clips-split {
+  min-height: 44px;
+  height: auto;
+  margin: 8px 16px;
+}
+
+html[data-go7-host="mobile"] .studio .rank-clips-split::after {
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .studio .slot,
+html[data-go7-host="mobile"] .studio .slot-add,
+html[data-go7-host="mobile"] .studio .choice,
+html[data-go7-host="mobile"] .studio .order-btn,
+html[data-go7-host="mobile"] .studio .count-btn,
+html[data-go7-host="mobile"] .studio .more-toggle,
+html[data-go7-host="mobile"] .studio .desk-save,
+html[data-go7-host="mobile"] .studio .desk-play-all,
+html[data-go7-host="mobile"] .studio .btn,
+html[data-go7-host="mobile"] .studio .btn-primary,
+html[data-go7-host="mobile"] .studio .btn-small,
+html[data-go7-host="mobile"] .studio .plus,
+html[data-go7-host="mobile"] .studio .nudge,
+html[data-go7-host="mobile"] .studio .switch {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .studio .switch,
+html[data-go7-host="mobile"] .studio .plus,
+html[data-go7-host="mobile"] .studio .nudge {
+  min-width: 44px;
+}
+
+html[data-go7-host="mobile"] .studio .rank-inspector .field,
+html[data-go7-host="mobile"] .studio .rank-inspector textarea.field,
+html[data-go7-host="mobile"] .studio .rank-inspector select.field,
+html[data-go7-host="mobile"] .studio .link-line .field {
+  min-height: 44px;
+  width: 100%;
+  max-width: 100%;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .studio .link-line,
+html[data-go7-host="mobile"] .studio .inout,
+html[data-go7-host="mobile"] .studio .row {
+  flex-wrap: wrap;
+}
+
+html[data-go7-host="mobile"] .studio .link-line .btn,
+html[data-go7-host="mobile"] .studio .link-line .btn-small,
+html[data-go7-host="mobile"] .studio .link-line .btn-primary {
+  min-height: 44px;
+  white-space: normal;
+}
+
+html[data-go7-host="mobile"] .studio .clip-add .btn,
+html[data-go7-host="mobile"] .studio .clip-add .btn-primary,
+html[data-go7-host="mobile"] .studio .find-subject .btn-primary,
+html[data-go7-host="mobile"] .studio .more-toggle,
+html[data-go7-host="mobile"] .studio .desk-save {
+  width: 100%;
+  background: #fffdf8;
+  color: #1c1915;
+  border: 1px solid #e6dfd2;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .studio .split-side.is-face,
+html[data-go7-host="mobile"] .studio .split-side.is-game,
+html[data-go7-host="mobile"] .studio .phone-empty {
+  background: #fffdf8;
+  color: #1c1915;
+}
+
+html[data-go7-host="mobile"] .studio .split-side-label,
+html[data-go7-host="mobile"] .studio .split-side-caption {
+  min-height: 44px;
+  font-size: 16px !important;
+}
+
+html[data-go7-host="mobile"] .studio .split-side-caption {
+  border-color: #e6dfd2 !important;
+}
+
+/* Canvas. Picture, then shelf, inspector, and timeline. Drag gutters are desktop column handles. */
+html[data-go7-host="mobile"] .app.canvas-screen {
+  height: 100%;
+  max-height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #f7f3ea;
+  color: #1c1915;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar {
+  flex-wrap: wrap;
+  align-items: stretch;
+  max-width: 100%;
+  background: #fffdf8;
+  border-bottom: 1px solid #e6dfd2;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 8px calc(10px + env(safe-area-inset-left, 0px));
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .canvas-nav {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  border-right: 0;
+  margin-right: 0;
+  padding-right: 0;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .nav-leave,
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar .btn,
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar .btn-primary,
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar-youtube > .btn,
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar-more-menu .btn {
+  max-width: 100%;
+  white-space: normal;
+  height: auto;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .flick-name {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .spacer {
+  display: none;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .encoder-line {
+  flex: 1 1 100%;
+  white-space: normal;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar-youtube,
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar-more {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar-youtube-menu,
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar-more-menu {
+  position: static;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .canvas-note {
+  position: static;
+  max-width: 100%;
+  margin: 8px 12px 0;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .workspace {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: #f7f3ea;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .pane-split {
+  display: none;
+}
+
+html[data-go7-host="mobile"] .region-hit {
+  min-height: 0;
+  font-size: inherit;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .stage-wrap,
+html[data-go7-host="mobile"] .app.canvas-screen .shelf-rail,
+html[data-go7-host="mobile"] .app.canvas-screen .inspector,
+html[data-go7-host="mobile"] .app.canvas-screen .timeline {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  max-height: none;
+  grid-column: auto;
+  grid-row: auto;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .stage-wrap {
+  order: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12px;
+  background: #f7f3ea;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .frame-wrap {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: none;
+  aspect-ratio: 9 / 16;
+  background: #fffdf8;
+  border: 1px solid #e2b340;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .shelf-rail {
+  order: 2;
+  overflow: visible;
+  border-right: 0;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .shelf-sticky {
+  position: static;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .inspector {
+  order: 3;
+  overflow: visible;
+  border-left: 0;
+  border-top: 1px solid #e6dfd2;
+  background: #fffdf8;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .timeline {
+  order: 4;
+  overflow-x: auto;
+  border-top: 1px solid #e6dfd2;
+  background: #fffdf8;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .inspector .field,
+html[data-go7-host="mobile"] .app.canvas-screen .inspector select.field,
+html[data-go7-host="mobile"] .app.canvas-screen .inspector textarea.field,
+html[data-go7-host="mobile"] .app.canvas-screen .shelf-search .field {
+  min-height: 44px;
+  width: 100%;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .inspector .btn,
+html[data-go7-host="mobile"] .app.canvas-screen .inspector .btn-small,
+html[data-go7-host="mobile"] .app.canvas-screen .shelf-add,
+html[data-go7-host="mobile"] .app.canvas-screen .shelf-place,
+html[data-go7-host="mobile"] .app.canvas-screen .lane-split,
+html[data-go7-host="mobile"] .app.canvas-screen .lane-history {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .inspector label.stack > span,
+html[data-go7-host="mobile"] .app.canvas-screen .inspector > .tiny.muted,
+html[data-go7-host="mobile"] .app.canvas-screen .shelf-purpose,
+html[data-go7-host="mobile"] .app.canvas-screen .lane-note,
+html[data-go7-host="mobile"] .app.canvas-screen .toolbar .muted.tiny {
+  font-size: 16px;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .btn.lane-play,
+html[data-go7-host="mobile"] .app.canvas-screen .btn.lane-play:hover {
+  width: auto;
+  min-height: 44px;
+  padding: 10px 22px;
+  font-size: 16px;
+  background: #e2b340;
+  color: #1c1915;
+  border: 1px solid #c9a15b;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .btn.lane-play:hover {
+  background: #d4a433;
+}
+
+html[data-go7-host="mobile"] .app.canvas-screen .lane-transport {
+  min-height: 44px;
+}

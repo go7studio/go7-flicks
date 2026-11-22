@@ -184,7 +184,7 @@ const PAGE = `
     while (Date.now() - start < ms) {
       const banner = document.querySelector(".banner")?.textContent?.trim() || "";
       const gold = document.querySelector(".btn-gold");
-      const busy = Boolean(gold && gold.disabled) || /Getting the clip|Finding clips|Cutting|Rendering|Asking which clip/.test(banner);
+      const busy = Boolean(gold && gold.disabled) || /Downloading|Getting the clip|Finding clips|Cutting|Rendering|Asking which clip/.test(banner);
       if (busy) saw = true;
       if (saw && !busy) return banner;
       if (saw === false && banner && banner !== previous && Date.now() - start > 800 && !/Getting the clip|Finding clips/.test(banner)) return banner;

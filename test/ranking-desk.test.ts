@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { fitRankingSlots, playbackSentence } from "../src/shared/desk";
+import { fitHandRange, fitRankingSlots, nextSequenceRange, playbackSentence, setHandLength, shiftHandRange } from "../src/shared/desk";
 import { SUBJECT_CLIP_COUNT } from "../src/shared/subject";
 
 const read = (relative: string) => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
@@ -78,7 +78,14 @@ test("the ranking desk says what find clips and which clip do", () => {
   assert.match(ranking, /Paste a link or upload a file\./);
   assert.match(ranking, /Add link/);
   assert.match(ranking, /Upload a file/);
-  assert.match(ranking, /downloadMedia\(folder, url, SHORT_CLIP_SEC\)/);
+  assert.match(ranking, /downloadMedia\(folder, url\)/);
+  assert.equal(ranking.includes("SHORT_CLIP_SEC"), false);
+  assert.equal(ranking.includes("Math.min(4"), false);
+  assert.match(ranking, /aria-label="Clip range"/);
+  assert.match(ranking, /Preview selection/);
+  assert.match(ranking, /Clip another sequence/);
+  assert.match(ranking, /Downloaded\. Clip the sequence\./);
+  assert.match(ranking, /Total clip length/);
   assert.equal(ranking.includes("Choose a clip"), false);
   assert.equal((ranking.match(/importMedia/g) ?? []).length, 1);
   assert.match(ranking, /Add another slot/);
@@ -86,6 +93,22 @@ test("the ranking desk says what find clips and which clip do", () => {
   assert.equal(ranking.includes("Add a clip"), false);
   assert.equal(ranking.includes("Empty slot"), false);
   assert.equal((ranking.match(/<video/g) ?? []).length, 2);
+});
+
+test("a pasted clip can use any part of the file", () => {
+  assert.deepEqual(fitHandRange(0, 80, 80), { inSec: 0, outSec: 80 });
+  assert.deepEqual(fitHandRange(0, 0.2, 10), { inSec: 0, outSec: 1 });
+  assert.deepEqual(fitHandRange(9.8, 10, 10), { inSec: 9, outSec: 10 });
+  assert.deepEqual(fitHandRange(2, 6, 10), { inSec: 2, outSec: 6 });
+  assert.deepEqual(fitHandRange(0, 0.4, 0.4), { inSec: 0, outSec: 0.4 });
+  assert.deepEqual(shiftHandRange(2, 5, 1, 10), { inSec: 3, outSec: 6 });
+  assert.deepEqual(shiftHandRange(2, 5, -5, 10), { inSec: 0, outSec: 3 });
+  assert.deepEqual(shiftHandRange(0, 10, 4, 10), { inSec: 0, outSec: 10 });
+  assert.deepEqual(setHandLength(8, 5, 10), { inSec: 5, outSec: 10 });
+  assert.deepEqual(setHandLength(1, 4, 40), { inSec: 1, outSec: 5 });
+  assert.deepEqual(nextSequenceRange(0, 40, 40), { inSec: 0, outSec: 40 });
+  assert.deepEqual(nextSequenceRange(10, 20, 40), { inSec: 20, outSec: 30 });
+  assert.deepEqual(nextSequenceRange(35, 40, 40), { inSec: 0, outSec: 5 });
 });
 
 test("the ranking clips handle grows when it is dragged up", () => {

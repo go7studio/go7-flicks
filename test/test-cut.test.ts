@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { voiceMuxArgs } from "../electron/cut";
+import { cutBudget, segmentSeekArgs, voiceMuxArgs } from "../electron/cut";
 import { cutAudioFilter } from "../src/shared/mix";
 import { clipLink } from "../src/shared/link";
 import { FRAME, storedSoundRelative } from "../src/shared/model";
@@ -256,4 +256,11 @@ test("a gta gameplay clip stays short and skips trailers", () => {
   const kept = fewSecondsAround(8.2, 12.2, 40);
   assert.equal(kept.inSec, 8.2);
   assert.equal(kept.outSec, 12.2);
+});
+
+test("a cut seeks to the chosen start and stops at the chosen end", () => {
+  assert.deepEqual(segmentSeekArgs(12.5, 28, "clip.mp4"), ["-ss", "12.5", "-to", "28", "-i", "clip.mp4"]);
+  assert.equal(cutBudget(2), 120_000);
+  assert.ok(cutBudget(120) > 120_000);
+  assert.ok(cutBudget(20 * 60) <= 30 * 60 * 1000);
 });

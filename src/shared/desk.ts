@@ -1,4 +1,5 @@
 import { playbackOrder, shelfName, slotRank, spokenLine, type PlaybackMode } from "./canvas";
+import { round3 } from "./model";
 
 /** The desk clock. Minutes, seconds, and hundredths, always the same width. */
 export function formatClock(seconds: number): string {
@@ -107,4 +108,60 @@ export function playbackSentence(
   if (mode === "listed") return order ? `Plays from the top of the list: ${order}.` : "Plays from the top of the list.";
   if (mode === "shuffle") return order ? `Plays ${order}, and the rank numbers stay.` : "Plays a mixed order, and the rank numbers stay.";
   return order ? `Plays ${order}.` : "Plays from the outside in.";
+}
+
+/** The shortest cut set by hand. A file shorter than this stays whole. */
+export const HAND_CLIP_MIN = 1;
+
+function handLimit(duration: number, inSec: number, outSec: number): number {
+  if (duration > 0 && Number.isFinite(duration)) return duration;
+  const end = Number.isFinite(outSec) ? outSec : 0;
+  const start = Number.isFinite(inSec) ? inSec : 0;
+  return Math.max(end, start, HAND_CLIP_MIN);
+}
+
+/** Keep a typed or dragged cut inside the file. One second is the shortest cut when the file is longer. */
+export function fitHandRange(inSec: number, outSec: number, duration: number): { inSec: number; outSec: number } {
+  const limit = handLimit(duration, inSec, outSec);
+  const minSpan = Math.min(HAND_CLIP_MIN, limit);
+  let start = Number.isFinite(inSec) ? inSec : 0;
+  let end = Number.isFinite(outSec) ? outSec : start + minSpan;
+  start = Math.min(Math.max(0, start), limit);
+  end = Math.min(Math.max(0, end), limit);
+  if (end < start) end = start;
+  if (end - start < minSpan - 0.0005) {
+    end = Math.min(limit, start + minSpan);
+    if (end - start < minSpan - 0.0005) start = Math.max(0, end - minSpan);
+  }
+  return { inSec: round3(start), outSec: round3(end) };
+}
+
+/** Slide the cut without changing its length. */
+export function shiftHandRange(inSec: number, outSec: number, delta: number, duration: number): { inSec: number; outSec: number } {
+  const fitted = fitHandRange(inSec, outSec, duration);
+  const span = fitted.outSec - fitted.inSec;
+  const limit = duration > 0 && Number.isFinite(duration) ? duration : Math.max(fitted.outSec, fitted.inSec + span);
+  let start = fitted.inSec + (Number.isFinite(delta) ? delta : 0);
+  if (start < 0) start = 0;
+  if (start + span > limit) start = Math.max(0, limit - span);
+  return { inSec: round3(start), outSec: round3(start + span) };
+}
+
+/** The next sequence starts where this one ended and keeps the same length. */
+export function nextSequenceRange(inSec: number, outSec: number, duration: number): { inSec: number; outSec: number } {
+  const fitted = fitHandRange(inSec, outSec, duration);
+  const limit = duration > 0 && Number.isFinite(duration) ? duration : fitted.outSec;
+  const span = fitted.outSec - fitted.inSec;
+  if (span >= limit - 0.05) return fitHandRange(0, limit, limit);
+  if (fitted.outSec >= limit - 0.05) return setHandLength(0, span, limit);
+  return setHandLength(fitted.outSec, span, limit);
+}
+
+/** A typed length stays with the start, and slides earlier only when the file ends first. */
+export function setHandLength(inSec: number, length: number, duration: number): { inSec: number; outSec: number } {
+  const limit = handLimit(duration, inSec, inSec + (Number.isFinite(length) ? length : HAND_CLIP_MIN));
+  const span = Math.min(Math.max(Number.isFinite(length) ? length : HAND_CLIP_MIN, Math.min(HAND_CLIP_MIN, limit)), limit);
+  let start = Number.isFinite(inSec) ? Math.max(0, inSec) : 0;
+  if (start + span > limit) start = Math.max(0, limit - span);
+  return fitHandRange(start, start + span, limit);
 }

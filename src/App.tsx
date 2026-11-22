@@ -5,6 +5,7 @@ import { ConnectionsScreen } from "./ui/ConnectionsScreen";
 import { HomeScreen } from "./ui/HomeScreen";
 import { RankingStudio } from "./ui/RankingStudio";
 import { SplitStudio } from "./ui/SplitStudio";
+import "./ui/polish-mobile.css";
 
 export type Route =
   | { name: "home"; nav?: "home" | "library" }

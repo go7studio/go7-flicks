@@ -635,6 +635,7 @@
 
 .studio .inout {
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .studio .clock .field {
@@ -990,7 +991,105 @@
 .studio .field:focus-visible,
 .studio .phone:focus-visible,
 .studio input[type="range"]:focus-visible,
-.studio input[type="color"]:focus-visible {
+.studio input[type="color"]:focus-visible,
+.studio .clip-range-handle:focus-visible,
+.studio .clip-range-preview:focus-visible {
   outline: 2px solid #e2b340;
   outline-offset: 2px;
+}
+
+.ranking .stage-wrap:has(.clip-range) .phone {
+  height: min(520px, calc(100vh - 420px));
+}
+
+.studio .clip-range {
+  width: min(380px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.studio .clip-range-bar {
+  position: relative;
+  height: 36px;
+  border-radius: 999px;
+  background: #efe8da;
+  border: 1px solid #e6dfd2;
+  touch-action: none;
+  user-select: none;
+}
+
+.studio .clip-range-window {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 999px;
+  background: #e2b340;
+  pointer-events: none;
+}
+
+.studio .clip-range-playhead {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  margin-left: -1px;
+  background: #1c1915;
+  pointer-events: none;
+}
+
+.studio .clip-range-handle {
+  position: absolute;
+  top: 1px;
+  width: 16px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid #1c1915;
+  background: #fffdf8;
+  transform: translateX(-50%);
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.studio .clip-range-times {
+  display: flex;
+  gap: 8px;
+}
+
+.studio .clip-range-times .clock {
+  flex: 1;
+  min-width: 0;
+}
+
+.studio .clip-range-note {
+  margin: 0;
+  color: #6f675c;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.studio .clip-range-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.studio .clip-range-preview {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #1c1915;
+  background: #fffdf8;
+  color: #1c1915;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.studio .clip-range-preview:hover {
+  background: #f8f1e3;
 }

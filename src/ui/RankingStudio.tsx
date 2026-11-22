@@ -41,9 +41,9 @@ import { round3, uid, type Clip, type Flick, type Template } from "../shared/mod
 import type { ResolvedMedia } from "../shared/api";
 import { captionFromFile, headlineFromFlick, openDeskFlick, titleFromClip } from "../remotion/FlickComposition";
 import type { AssistClip } from "../shared/assist";
-import { fitRankingSlots, formatClock, playbackSentence, rankingStartId, rankingStep, slotListTitle, slotTimeLine } from "../shared/desk";
+import { fitHandRange, fitRankingSlots, formatClock, nextSequenceRange, playbackSentence, rankingStartId, rankingStep, setHandLength, shiftHandRange, slotListTitle, slotTimeLine } from "../shared/desk";
 import { clipLink } from "../shared/link";
-import { placeFoundClips, SHORT_CLIP_SEC, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
+import { placeFoundClips, SUBJECT_CLIP_COUNT, subjectLine } from "../shared/subject";
 import { whenPhrase } from "../shared/when";
 import "./polish-desks.css";
 import { StyleFields } from "./StyleFields";
@@ -89,16 +89,6 @@ function renumberSlots(rows: Slot[]): Slot[] {
     ...item,
     rank: slotRank(undefined, index, rows.length),
   }));
-}
-
-function clampOut(next: number, inSec: number, duration: number): number {
-  const cap = duration > 0 ? duration : next;
-  return round3(Math.max(inSec + 0.1, Math.min(Math.max(0, next), cap)));
-}
-
-function clampIn(next: number, outSec: number, duration: number): number {
-  const end = duration > 0 ? Math.min(outSec, duration) : outSec;
-  return round3(Math.min(Math.max(0, next), Math.max(0, end - 0.1)));
 }
 
 function deckTarget(mode: "file" | "cut", item: Slot): number {
@@ -319,6 +309,7 @@ export function RankingStudio({
   const [look, setLook] = useState(sectionMemory.look);
   const [playing, setPlaying] = useState(false);
   const [playKind, setPlayKind] = useState<"ranking" | "clip" | null>(null);
+  const [looping, setLooping] = useState(false);
   const [nowSec, setNowSec] = useState(0);
   const [liveFace, setLiveFace] = useState<0 | 1>(0);
   const slot = slots[selected];
@@ -344,6 +335,7 @@ export function RankingStudio({
   const holding = useRef(false);
   const skipPark = useRef(false);
   const span = useRef<"file" | "cut">("file");
+  const loopCut = useRef(false);
   const readySlot = useRef<string | null>(null);
   const frameWatch = useRef(0);
   const slotsRef = useRef(slots);
@@ -735,6 +727,8 @@ export function RankingStudio({
 
   function stopSequence() {
     playAll.current = false;
+    loopCut.current = false;
+    setLooping(false);
     playQueue.current = [];
     holding.current = false;
     cancelAnimationFrame(frameWatch.current);
@@ -854,6 +848,8 @@ export function RankingStudio({
   }
 
   function playRanking() {
+    loopCut.current = false;
+    setLooping(false);
     if (playing && playKind === "ranking") {
       pausePreview();
       return;
@@ -875,7 +871,7 @@ export function RankingStudio({
   }
 
   function playThisClip() {
-    if (playing && playKind === "clip") {
+    if (playing && playKind === "clip" && !looping) {
       pausePreview();
       return;
     }
@@ -886,6 +882,38 @@ export function RankingStudio({
       return;
     }
     void startPlay(current.id, "file");
+  }
+
+  function previewSelection() {
+    const current = slots[selected];
+    if (!current?.previewUrl) {
+      flashMessage(current?.mediaId ? "That clip has no preview yet." : "This rank has no clip.");
+      return;
+    }
+    if (playing && looping) {
+      pausePreview();
+      return;
+    }
+    stopSequence();
+    loopCut.current = true;
+    setLooping(true);
+    void startPlay(current.id, "cut");
+  }
+
+  function commitRange(id: string, range: { inSec: number; outSec: number }, seekTo: number) {
+    skipPark.current = true;
+    span.current = "cut";
+    writeSlot(id, () => range);
+    const video = nodeAt(liveDeck.current);
+    const at = Math.max(0, seekTo);
+    if (video) {
+      try {
+        video.currentTime = at;
+      } catch {
+        // The file may still be opening.
+      }
+    }
+    setNowSec(at);
   }
 
   function advanceOrStop(current: Slot, forceEnd = false) {
@@ -915,6 +943,24 @@ export function RankingStudio({
         if (!ok || !holding.current || !playAll.current) return;
         cutTo(hidden, next.index);
       });
+      return;
+    }
+    if (loopCut.current && span.current === "cut" && !playAll.current) {
+      const live = video ?? nodeAt(liveDeck.current);
+      if (!live) return;
+      const at = Math.max(0, current.inSec);
+      holding.current = false;
+      wantPlay.current = true;
+      live.currentTime = at;
+      setNowSec(at);
+      void live.play().catch(() => {
+        loopCut.current = false;
+        setLooping(false);
+        wantPlay.current = false;
+        setPlaying(false);
+        setPlayKind(null);
+      });
+      watchFrames();
       return;
     }
     stopSequence();
@@ -1256,7 +1302,7 @@ export function RankingStudio({
   }
 
   function dropProgress() {
-    setMessageState((current) => (current === "Getting the clip…" || current === "Finding clips…" ? "" : current));
+    setMessageState((current) => (current === "Downloading…" || current === "Getting the clip…" || current === "Finding clips…" ? "" : current));
   }
 
   function clearAddNote() {
@@ -1307,15 +1353,16 @@ export function RankingStudio({
   ) {
     const current = slotsRef.current[index];
     const resolved = media?.find((item) => item.id === asset.id);
-    const duration = asset.durationSec || 3;
+    const duration = asset.durationSec > 0 ? asset.durationSec : 3;
+    const range = fitHandRange(0, duration, duration);
     fillSlot(index, {
       mediaId: asset.id,
       mediaName: asset.name,
       madeAt: resolved?.madeAt,
       previewUrl: resolved?.previewUrl ?? null,
       duration,
-      inSec: 0,
-      outSec: Math.min(4, Math.max(0.4, duration)),
+      inSec: range.inSec,
+      outSec: range.outSec,
       title: captionFromFile(current?.title, asset.name),
       focus: 0.5,
       ...(sourceUrl ? { note: sourceUrl } : {}),
@@ -1339,24 +1386,19 @@ export function RankingStudio({
     selectRank(index);
     clearAddNote();
     setBusy(true);
-    setMessage("Getting the clip…");
+    setMessage("Downloading…");
     try {
       const folder = await ensureDir();
       if (!folder) return;
-      const result = await window.flicks!.downloadMedia(folder, url, SHORT_CLIP_SEC);
+      const result = await window.flicks!.downloadMedia(folder, url);
       if (!result.ok || !result.asset) {
         setMessage("");
         flashNote(linkNote(result.message));
         return;
       }
-      if (result.asset.durationSec > SHORT_CLIP_SEC) {
-        setMessage("");
-        flashNote("That clip is too long.");
-        return;
-      }
       landClip(index, result.asset, result.media, result.sourceUrl || url);
       setLinkText("");
-      flashMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+      flashMessage(result.workingCopy ? "Downloaded. Clip the sequence. The working copy is on this computer." : "Downloaded. Clip the sequence.");
     } finally {
       setBusy(false);
       dropProgress();
@@ -1383,10 +1425,67 @@ export function RankingStudio({
         return;
       }
       landClip(index, result.asset, result.media);
-      flashMessage(result.workingCopy ? "Working copy is on this computer." : result.asset.name);
+      flashMessage(result.workingCopy ? "Added. Clip the sequence. The working copy is on this computer." : "Added. Clip the sequence.");
     } finally {
       setBusy(false);
     }
+  }
+
+  function clipAnotherSequence() {
+    const rows = slotsRef.current;
+    const current = rows[selected];
+    if (!current?.mediaId) {
+      flashMessage("Download a video first.");
+      return;
+    }
+    pausePreview();
+    const range = nextSequenceRange(current.inSec, current.outSec, current.duration);
+    let empty = -1;
+    for (let step = 1; step <= rows.length; step += 1) {
+      const index = (selected + step) % rows.length;
+      if (!rows[index]?.mediaId) {
+        empty = index;
+        break;
+      }
+    }
+    if (empty >= 0) {
+      setSlots(
+        rows.map((item, index) =>
+          index === empty
+            ? {
+                ...item,
+                note: current.note,
+                inSec: range.inSec,
+                outSec: range.outSec,
+                duration: current.duration,
+                mediaId: current.mediaId,
+                mediaName: current.mediaName,
+                madeAt: current.madeAt,
+                previewUrl: current.previewUrl,
+                focus: current.focus,
+              }
+            : item,
+        ),
+      );
+      setSelected(empty);
+    } else {
+      const added: Slot = {
+        ...makeSlots(1)[0],
+        note: current.note,
+        inSec: range.inSec,
+        outSec: range.outSec,
+        duration: current.duration,
+        mediaId: current.mediaId,
+        mediaName: current.mediaName,
+        madeAt: current.madeAt,
+        previewUrl: current.previewUrl,
+        focus: current.focus,
+        keepEmpty: true,
+      };
+      setSlots(renumberSlots([...rows, added]));
+      setSelected(rows.length);
+    }
+    flashMessage("Same download. Clip this sequence.");
   }
 
   async function openTimeline() {
@@ -1525,6 +1624,7 @@ export function RankingStudio({
   const rankSwatch = rankColorOf(rankColor);
   const captionSwatch = lineColorOf(lineColor);
   const sequence = playbackOrder(slots, playback, orderIds).filter((item) => item.previewUrl);
+  const filmOrder = playbackOrder(slots, playback, orderIds).filter((item) => item.mediaId && item.duration > 0);
   const playAt = new Map(sequence.map((item, index) => [item.id, index + 1]));
   const swatch = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#e2b340";
   const wash = warmthWash(warmth);
@@ -1719,6 +1819,52 @@ export function RankingStudio({
             </button>
             <span className="desk-clock">{formatClock(slot?.previewUrl ? nowSec : 0)}</span>
           </div>
+          {slot && slot.duration > 0 ? (
+            <ClipRange
+              slotId={slot.id}
+              duration={slot.duration}
+              inSec={slot.inSec}
+              outSec={slot.outSec}
+              nowSec={slot.previewUrl ? nowSec : 0}
+              looping={playing && looping}
+              canPreview={Boolean(slot.previewUrl)}
+              onStart={(sec) => {
+                const range = fitHandRange(sec, slot.outSec, slot.duration);
+                commitRange(slot.id, range, range.inSec);
+              }}
+              onEnd={(sec) => {
+                const range = fitHandRange(slot.inSec, sec, slot.duration);
+                commitRange(slot.id, range, range.outSec);
+              }}
+              onShift={(delta, originIn, originOut) => {
+                const range = shiftHandRange(originIn, originOut, delta, slot.duration);
+                commitRange(slot.id, range, range.inSec);
+              }}
+              onLength={(next) => {
+                const range = setHandLength(slot.inSec, next, slot.duration);
+                commitRange(slot.id, range, range.inSec);
+              }}
+              onPreview={previewSelection}
+              onAnother={clipAnotherSequence}
+              onPlace={(sec, span) => {
+                const range = setHandLength(sec, span, slot.duration);
+                commitRange(slot.id, range, range.inSec);
+              }}
+              onPick={(id) => {
+                const index = slots.findIndex((item) => item.id === id);
+                if (index >= 0) selectRank(index);
+              }}
+              sequence={filmOrder.map((item) => ({
+                id: item.id,
+                label: `#${item.rank}`,
+                lengthSec: Math.max(0, item.outSec - item.inSec),
+                active: item.id === slot.id,
+              }))}
+              others={slots
+                .filter((item) => item.mediaId && item.mediaId === slot.mediaId && item.id !== slot.id)
+                .map((item) => ({ id: item.id, inSec: item.inSec, outSec: item.outSec }))}
+            />
+          ) : null}
         </div>
         <aside className="inspector stack rank-inspector">
           <div className="desk-focus clip-add">
@@ -1959,23 +2105,39 @@ export function RankingStudio({
                     />
                   </label>
                   <div className="stack">
-                    <span className="field-label">In and Out</span>
+                    <span className="field-label">Start and end</span>
                     <div className="inout">
                       <ClockField
                         key={`${slot.id}-in`}
-                        label="In"
+                        label="Start"
                         value={slot.inSec}
-                        onCommit={(next) => writeSlot(slot.id, (row) => ({ inSec: clampIn(next, row.outSec, row.duration) }))}
+                        onCommit={(next) => {
+                          const range = fitHandRange(next, slot.outSec, slot.duration);
+                          commitRange(slot.id, range, range.inSec);
+                        }}
                       />
                       <span className="inout-dash">–</span>
                       <ClockField
                         key={`${slot.id}-out`}
-                        label="Out"
+                        label="End"
                         value={slot.outSec}
-                        onCommit={(next) => writeSlot(slot.id, (row) => ({ outSec: clampOut(next, row.inSec, row.duration) }))}
+                        onCommit={(next) => {
+                          const range = fitHandRange(slot.inSec, next, slot.duration);
+                          commitRange(slot.id, range, range.outSec);
+                        }}
+                      />
+                      <ClockField
+                        key={`${slot.id}-length`}
+                        label="Length"
+                        ariaLabel="Total clip length"
+                        value={Math.max(0, slot.outSec - slot.inSec)}
+                        onCommit={(next) => {
+                          const range = setHandLength(slot.inSec, next, slot.duration);
+                          commitRange(slot.id, range, range.inSec);
+                        }}
                       />
                     </div>
-                    {slot.duration > 0 ? <p className="muted">This file is {slot.duration.toFixed(1)}s. In and out stay inside it.</p> : null}
+                    {slot.duration > 0 ? <p className="muted">This file is {formatClock(slot.duration)}. The cut can be any part of it.</p> : null}
                   </div>
                   <div className="nudge-row">
                     <span>Earlier</span>
@@ -2002,7 +2164,217 @@ export function RankingStudio({
   );
 }
 
-function ClockField({ label, value, onCommit }: { label: string; value: number; onCommit: (next: number) => void }) {
+function ClipRange({
+  slotId,
+  duration,
+  inSec,
+  outSec,
+  nowSec,
+  looping,
+  canPreview,
+  onStart,
+  onEnd,
+  onShift,
+  onLength,
+  onPreview,
+  onAnother,
+  onPlace,
+  onPick,
+  sequence,
+  others,
+}: {
+  slotId: string;
+  duration: number;
+  inSec: number;
+  outSec: number;
+  nowSec: number;
+  looping: boolean;
+  canPreview: boolean;
+  onStart: (sec: number) => void;
+  onEnd: (sec: number) => void;
+  onShift: (delta: number, originIn: number, originOut: number) => void;
+  onLength: (length: number) => void;
+  onPreview: () => void;
+  onAnother: () => void;
+  onPlace: (sec: number, span: number) => void;
+  onPick: (id: string) => void;
+  sequence: { id: string; label: string; lengthSec: number; active: boolean }[];
+  others: { id: string; inSec: number; outSec: number }[];
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const span = Math.max(duration, 0.001);
+  const startPct = (Math.min(span, Math.max(0, inSec)) / span) * 100;
+  const endPct = (Math.min(span, Math.max(0, outSec)) / span) * 100;
+  const nowPct = (Math.min(span, Math.max(0, nowSec)) / span) * 100;
+
+  function secondsAt(clientX: number): number {
+    const bar = barRef.current;
+    if (!bar) return 0;
+    const bounds = bar.getBoundingClientRect();
+    const ratio = (clientX - bounds.left) / Math.max(bounds.width, 1);
+    return Math.min(duration, Math.max(0, ratio * duration));
+  }
+
+  function begin(event: React.PointerEvent, kind: "start" | "end" | "window" | "place") {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const originX = event.clientX;
+    const originIn = inSec;
+    const originOut = outSec;
+    const clipSpan = Math.max(0.1, originOut - originIn);
+    if (kind === "place") onPlace(secondsAt(event.clientX), clipSpan);
+    const move = (ev: PointerEvent) => {
+      if (kind === "window") {
+        const bar = barRef.current;
+        if (!bar) return;
+        const width = Math.max(bar.getBoundingClientRect().width, 1);
+        onShift(((ev.clientX - originX) / width) * duration, originIn, originOut);
+        return;
+      }
+      const sec = secondsAt(ev.clientX);
+      if (kind === "place") onPlace(sec, span);
+      else if (kind === "start") onStart(sec);
+      else onEnd(sec);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  function nudge(edge: "start" | "end", event: React.KeyboardEvent) {
+    const step = event.shiftKey ? 1 : 0.1;
+    const sign = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    if (!sign) return;
+    event.preventDefault();
+    if (edge === "start") onStart(inSec + sign * step);
+    else onEnd(outSec + sign * step);
+  }
+
+  return (
+    <div className="clip-range">
+      {sequence.length > 1 ? (
+        <div className="clip-sequence" role="list" aria-label="Clip sequence">
+          {sequence.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="listitem"
+              className={item.active ? "clip-sequence-block on" : "clip-sequence-block"}
+              style={{ flexGrow: Math.max(item.lengthSec, 0.4) }}
+              aria-pressed={item.active}
+              onClick={() => onPick(item.id)}
+            >
+              <b>{item.label}</b>
+              <span>{shortClock(item.lengthSec)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div
+        className="clip-film"
+        ref={barRef}
+        role="group"
+        aria-label="Clip range"
+        onPointerDown={(event) => {
+          if ((event.target as HTMLElement).closest(".clip-film-other, .clip-range-handle")) return;
+          const sec = secondsAt(event.clientX);
+          if (sec >= inSec && sec <= outSec) begin(event, "window");
+          else begin(event, "place");
+        }}
+      >
+        <div className="clip-film-frames" />
+        <div className="clip-film-shade" style={{ width: `${startPct}%` }} />
+        <div className="clip-film-shade is-right" style={{ left: `${endPct}%`, width: `${Math.max(0, 100 - endPct)}%` }} />
+        {others.map((item) => {
+          const left = (Math.min(span, Math.max(0, item.inSec)) / span) * 100;
+          const right = (Math.min(span, Math.max(0, item.outSec)) / span) * 100;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className="clip-film-other"
+              style={{ left: `${left}%`, width: `${Math.max(0, right - left)}%` }}
+              aria-label="Other sequence on this video"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onPick(item.id);
+              }}
+            />
+          );
+        })}
+        <div className="clip-film-window" style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}>
+          {endPct - startPct > 18 ? <span>Clip</span> : null}
+        </div>
+        <span className="clip-range-playhead" style={{ left: `${nowPct}%` }} />
+        <span className="clip-film-clock is-start">{shortClock(0)}</span>
+        <span className="clip-film-clock is-end">{shortClock(duration)}</span>
+        <button
+          type="button"
+          className="clip-range-handle is-start"
+          style={{ left: `${startPct}%` }}
+          aria-label="Clip start"
+          role="slider"
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={inSec}
+          aria-valuetext={formatClock(inSec)}
+          onPointerDown={(event) => begin(event, "start")}
+          onKeyDown={(event) => nudge("start", event)}
+        />
+        <button
+          type="button"
+          className="clip-range-handle is-end"
+          style={{ left: `${endPct}%` }}
+          aria-label="Clip end"
+          role="slider"
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={outSec}
+          aria-valuetext={formatClock(outSec)}
+          onPointerDown={(event) => begin(event, "end")}
+          onKeyDown={(event) => nudge("end", event)}
+        />
+      </div>
+      <div className="clip-range-times">
+        <ClockField key={`${slotId}-start`} label="Start" value={inSec} onCommit={onStart} />
+        <ClockField key={`${slotId}-end`} label="End" value={outSec} onCommit={onEnd} />
+        <ClockField
+          key={`${slotId}-len`}
+          label="Length"
+          ariaLabel="Total clip length"
+          value={Math.max(0, outSec - inSec)}
+          onCommit={onLength}
+        />
+      </div>
+      <p className="clip-range-note">The video is downloaded. Drag the ends to clip this sequence, or slide the middle to move it.</p>
+      <div className="clip-range-actions">
+        <button type="button" className="btn clip-range-preview" disabled={!canPreview} onClick={onPreview}>
+          {looping ? "Pause" : "Preview selection"}
+        </button>
+        <button type="button" className="btn clip-range-preview" onClick={onAnother}>
+          Clip another sequence
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ClockField({
+  label,
+  value,
+  onCommit,
+  ariaLabel,
+}: {
+  label: string;
+  value: number;
+  onCommit: (next: number) => void;
+  ariaLabel?: string;
+}) {
   const [text, setText] = useState(() => formatClock(value));
   const [focused, setFocused] = useState(false);
   useEffect(() => {
@@ -2013,6 +2385,7 @@ function ClockField({ label, value, onCommit }: { label: string; value: number; 
       <span>{label}</span>
       <input
         className="field"
+        aria-label={ariaLabel ?? label}
         value={focused ? text : formatClock(value)}
         onFocus={() => {
           setFocused(true);

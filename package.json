@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && vite build && remotion bundle src/remotion/index.ts --out-dir remotion-bundle",
+    "build:web": "vite build --mode mobile",
     "test": "tsx --test test/*.test.ts",
     "test:cut": "tsx scripts/test-cut.ts",
     "verify:export": "tsx scripts/verify-export.ts",
